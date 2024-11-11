@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "src"
+version = "0.1.0"
+description = "Project SMILE backend app"
+authors = ["Eric Lampron <elampron@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+langchain = "^0.3.7"
+langgraph = "^0.2.45"
+fastapi = "^0.115.4"
+uvicorn = "^0.32.0"
+pydantic = "^2.9.2"
+langsmith = {version = "^0.1.142", optional = true}
+rich = "^13.9.4"
+pydantic-settings = "^2.6.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

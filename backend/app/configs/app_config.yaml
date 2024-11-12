@@ -1,0 +1,20 @@
+# Project configuration
+project_info:
+  project_name: "Project-SMILE"
+  project_version: "0.1.0"
+  project_description: "Project-SMILE"
+
+# Debug configuration
+debug: false
+
+# Log configuration
+log_config:
+  log_level: "INFO"
+  log_file: ""
+
+# Langchain configuration
+langchain_config:
+  tracing_v2: true
+  endpoint: "https://api.smith.langchain.com"
+  project: "project-smile"
+

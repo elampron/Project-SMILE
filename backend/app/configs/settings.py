@@ -6,28 +6,27 @@ from typing import Optional
 
 # Define the settings class
 class Settings(BaseSettings):
-    # Define the project settings
-    PROJECT_NAME: str = "Proeject-SMILE" # Project name
-    PROJECT_VERSION: str = "0.1.0" # Project version
-    PROJECT_DESCRIPTION: str = "Proeject-SMILE" # Project description
-    DEBUG: bool = False # Debug mode
-    LOG_LEVEL: str = "INFO" # Log level
-    LOG_FILE: Optional[str] = None # Log file
-    LANGCHAIN_TRACING_V2: Optional[bool] = False # Langchain tracing v2
-    LANGCHAIN_ENDPOINT: Optional[str] = None # Langchain endpoint
     LANGCHAIN_API_KEY: Optional[str] = None # Langchain api key
-    LANGCHAIN_PROJECT: Optional[str] = None # Langchain project
-    # Define the LLM settings
-    LLM_EMBEDDING: Optional[str] = None # Embedding model
-    LLM_BIG: str="gtp-4os" # Big model for main interaction
-    LLM_SMALL: str="gtp-4o-mini" # Small model for summarization, categorization and extraction
+    OPENAI_API_KEY: Optional[str] = None # OpenAI API key
+    ANTHROPIC_API_KEY: Optional[str] = None # Anthropic API key
+    TAVILY_API_KEY: Optional[str] = None # Tavily API key
+    model_config = SettingsConfigDict(env_file=".env", extra="allow")
+    # Define the project settings
+    @property
+    def app_config(self):
+        config_path = os.path.join("app", "configs", "app_config.yaml")
+        with open(config_path, "r") as file:
+            return yaml.safe_load(file)
     
     # Define the LLM configuration
     @property
     def llm_config(self):
-        with open("app\configs\settings.py", "r") as file:
+        # Change the path to point to your actual YAML config file
+        config_path = os.path.join("app", "configs", "llm_config.yaml")
+        with open(config_path, "r") as file:
             return yaml.safe_load(file)
+        
 
-# Example usage
+# Comment out or remove the example usage since it's causing errors
 settings = Settings()
-print(settings.llm_config.chatbot_agent.name)
+# print("Settings have been loaded successfully")

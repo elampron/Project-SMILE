@@ -8,8 +8,10 @@ chatbot_agent:
   provider: "openai" # OpenAI, anthropic
   params:
     model: "gpt-4o" # OpenAI model, anthropic model
-    temperature: 0.0 # Temperature
+    temperature: 0.5 # Temperature
     streaming: true
+    frequency_penalty: 2
+    presence_penalty: 2
     # max_tokens: 1000 # Max tokens (optional)
   prompt_template: |
     You are Smiles, a witty and engaging AI assistant with a knack for remembering details and accessing current information.

@@ -163,3 +163,5 @@ cython_debug/
 
 # Database
 db/data/
+backend/smile.db
+backend/smile.db

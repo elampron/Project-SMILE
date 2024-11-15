@@ -1,5 +1,4 @@
 import logging
-import sqlite3
 from typing import Annotated, Sequence, TypedDict
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -10,6 +9,8 @@ from langgraph.graph import add_messages, StateGraph
 from app.configs.settings import settings
 from app.tools.public_tools import web_search_tool, file_tools
 from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.sqlite import SqliteSaver
+from app.tools.custom_tools import execute_python, execute_cmd  # Importing both custom tools
 
 
 class AgentState(TypedDict):
@@ -28,7 +29,7 @@ class Smile:
         if not postgres_conn:
             self.logger.error("PostgreSQL connection string not found in config")
             postgres_conn = "postgresql://postgres:postgres@localhost:5432/checkpoints"
-        self.checkpointer = PostgresSaver.from_conn_string(conn_string=postgres_conn)
+        
 
     def format_for_model(self, state: AgentState):
         return self.prompt.invoke({"messages": state["messages"]})
@@ -44,7 +45,7 @@ class Smile:
             self.logger.error("Chatbot agent prompt template not found", extra={"llm_config": llm_config})
             return
 
-        tools = [web_search_tool]+file_tools
+        tools = [web_search_tool] + file_tools + [execute_python, execute_cmd]
        
 
         self.prompt = ChatPromptTemplate.from_messages([
@@ -52,38 +53,43 @@ class Smile:
             ("placeholder", "{messages}"),
         ])
 
+        # Create the checkpoints table before using PostgresSaver
+        # create_checkpoints_table(self.settings.app_config["postgres_config"]["conn"])
+        
 
+        # with PostgresSaver.from_conn_string(conn_string=self.settings.app_config["postgres_config"]["conn"]) as checkpointer:
+        with SqliteSaver.from_conn_string(conn_string=self.db_path) as checkpointer:
+            graph = create_react_agent(
+                self.chatbot_agent_llm,
+                tools,
+                state_modifier=self.format_for_model,
+                checkpointer=checkpointer
+            )
 
-        graph = create_react_agent(
-            self.chatbot_agent_llm,
-            tools,
-            state_modifier=self.format_for_model,
-            # checkpointer=self.checkpointer
-        )
+            self.logger.debug("Chatbot agent prompt", extra={"prompt": self.prompt})
 
-        self.logger.debug("Chatbot agent prompt", extra={"prompt": self.prompt})
+            inputs = {"messages": [("user", user_input)]}
 
-        inputs = {"messages": [("user", user_input)]}
+            # Initialize variable to gather AI message content
+            ai_message_content = ""
 
-        # Initialize variable to gather AI message content
-        ai_message_content = ""
+            # Stream messages from the graph
+            config= {"thread_id": "123"}
+            for msg, metadata in graph.stream(inputs, stream_mode="messages", config=config):
+                # Check if the message is an AIMessage or AIMessageChunk
+                if isinstance(msg, (AIMessageChunk, AIMessage)):
+                    # Yield the content as it comes
+                    if msg.content:
+                        yield msg.content
+                        ai_message_content += msg.content  # Accumulate if needed
+                # Optionally handle other message types
+                elif isinstance(msg, ToolMessage):
+                    # Skip ToolMessages or process them as needed
+                    pass
+                else:
+                    # Handle other message types if necessary
+                    pass
 
-        # Stream messages from the graph
-        config= {"thread_id": "123"}
-        for msg, metadata in graph.stream(inputs, stream_mode="messages", config=config):
-            # Check if the message is an AIMessage or AIMessageChunk
-            if isinstance(msg, (AIMessageChunk, AIMessage)):
-                # Yield the content as it comes
-                if msg.content:
-                    yield msg.content
-                    ai_message_content += msg.content  # Accumulate if needed
-            # Optionally handle other message types
-            elif isinstance(msg, ToolMessage):
-                # Skip ToolMessages or process them as needed
-                pass
-            else:
-                # Handle other message types if necessary
-                pass
     def llm_factory(self, llm_name: str):
         llm_config = self.settings.llm_config.get(llm_name)
         if llm_config:
@@ -98,6 +104,33 @@ class Smile:
                 raise ValueError(f"Provider {provider} not supported")
 
             return llm
+
+
+# def create_checkpoints_table(conn_string: str):
+#     """
+#     Creates the checkpoints table if it doesn't exist.
+    
+#     Args:
+#         conn_string (str): PostgreSQL connection string
+#     """
+#     create_table_sql = """
+#     CREATE TABLE IF NOT EXISTS checkpoints (
+#         thread_id TEXT,
+#         checkpoint_ns TEXT,
+#         checkpoint_data BYTEA,
+#         PRIMARY KEY (thread_id, checkpoint_ns)
+#     );
+#     """
+    
+#     try:
+#         with psycopg.connect(conn_string) as conn:
+#             with conn.cursor() as cur:
+#                 cur.execute(create_table_sql)
+#             conn.commit()
+#         logging.info("Checkpoints table created successfully")
+#     except Exception as e:
+#         logging.error(f"Error creating checkpoints table: {str(e)}")
+#         raise
 
 
     

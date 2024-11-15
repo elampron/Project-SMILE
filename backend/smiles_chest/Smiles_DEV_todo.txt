@@ -1,0 +1,8 @@
+# Smiles DEV To-Do List
+
+1. Implement RESTful endpoints for the API.
+2. Set up Web search capabilities using Tavily Search.
+3. Develop File management tools and organize files efficiently in 'smiles_chest.'
+4. Enhance memory system by saving notes/memories as files temporarily until a robust solution is built.
+5. Explore different communication channels (CLI, Web UI) and modes (Focus Mode, Therapist Mode).
+6. Adjust LLM configurations based on feedback or new requirements.

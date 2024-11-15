@@ -3,12 +3,12 @@ import asyncio
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.markdown import Markdown
-from app.smile import Smile
+from app.services.smile import Smile
 from app.configs.settings import settings
 
 # Logging setup
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("CLI")
@@ -38,7 +38,7 @@ console.print(Markdown(welcome_text))
 
 smile = Smile()
 
-async def main():
+def main():
     # Main loop
     while True:
         user_input = Prompt.ask("Enter a command:")
@@ -61,5 +61,5 @@ async def main():
 
 # Run the async main function
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
 

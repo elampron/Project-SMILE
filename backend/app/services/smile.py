@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 from typing import Annotated, Sequence, TypedDict
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -7,7 +8,9 @@ from langgraph.prebuilt import create_react_agent
 from langchain.prompts import ChatPromptTemplate
 from langgraph.graph import add_messages, StateGraph
 from app.configs.settings import settings
-from app.tools.public_tools import web_search_tool
+from app.tools.public_tools import web_search_tool, file_tools
+from langgraph.checkpoint.postgres import PostgresSaver
+
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
@@ -19,6 +22,13 @@ class Smile:
         self.logger.info("Smile class logger initialized")
         self.chatbot_agent_llm = self.llm_factory("chatbot_agent")
         self.embeddings_client = self.llm_factory("embeddings")
+        self.db_path = "smile.db"
+        # Create PostgreSQL connection string from config
+        postgres_conn = settings.app_config["postgres_config"]["conn"]
+        if not postgres_conn:
+            self.logger.error("PostgreSQL connection string not found in config")
+            postgres_conn = "postgresql://postgres:postgres@localhost:5432/checkpoints"
+        self.checkpointer = PostgresSaver.from_conn_string(conn_string=postgres_conn)
 
     def format_for_model(self, state: AgentState):
         return self.prompt.invoke({"messages": state["messages"]})
@@ -34,17 +44,21 @@ class Smile:
             self.logger.error("Chatbot agent prompt template not found", extra={"llm_config": llm_config})
             return
 
-        tools = [web_search_tool]
+        tools = [web_search_tool]+file_tools
+       
 
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", llm_config["prompt_template"]),
             ("placeholder", "{messages}"),
         ])
 
+
+
         graph = create_react_agent(
             self.chatbot_agent_llm,
             tools,
-            state_modifier=self.format_for_model
+            state_modifier=self.format_for_model,
+            # checkpointer=self.checkpointer
         )
 
         self.logger.debug("Chatbot agent prompt", extra={"prompt": self.prompt})
@@ -55,7 +69,8 @@ class Smile:
         ai_message_content = ""
 
         # Stream messages from the graph
-        for msg, metadata in graph.stream(inputs, stream_mode="messages"):
+        config= {"thread_id": "123"}
+        for msg, metadata in graph.stream(inputs, stream_mode="messages", config=config):
             # Check if the message is an AIMessage or AIMessageChunk
             if isinstance(msg, (AIMessageChunk, AIMessage)):
                 # Yield the content as it comes

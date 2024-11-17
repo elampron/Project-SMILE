@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None # OpenAI API key
     ANTHROPIC_API_KEY: Optional[str] = None # Anthropic API key
     TAVILY_API_KEY: Optional[str] = None # Tavily API key
+    TWILIO_ACCOUNT_SID: Optional[str] = None # Twilio account sid
+    TWILIO_AUTH_TOKEN: Optional[str] = None # Twilio auth token
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
     # Define the project settings
     @property
@@ -26,7 +28,10 @@ class Settings(BaseSettings):
         with open(config_path, "r") as file:
             return yaml.safe_load(file)
         
+   
+
 
 # Comment out or remove the example usage since it's causing errors
 settings = Settings()
+
 # print("Settings have been loaded successfully")

@@ -1,10 +1,14 @@
 import logging
-import asyncio
+import os
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.markdown import Markdown
 from app.services.smile import Smile
 from app.configs.settings import settings
+
+# Load the environment variables from the .env file
+load_dotenv()
 
 # Logging setup
 logging.basicConfig(
@@ -13,7 +17,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("CLI")
 
-# Rich console
 console = Console()
 
 logger.info("Starting CLI")
@@ -33,6 +36,8 @@ Available commands:
 To use a command, type its number or just start chatting!
 """
 
+# clear the console
+console.clear()
 # Print welcome text
 console.print(Markdown(welcome_text))
 
@@ -46,6 +51,8 @@ def main():
             console.print("Goodbye!")
             break
         elif user_input.strip() == "2":
+            # Clear the screen before showing menu
+            console.clear()
             console.print(Markdown(welcome_text))
             continue
         else:

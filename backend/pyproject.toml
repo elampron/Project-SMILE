@@ -21,6 +21,8 @@ langchain-anthropic = "^0.2.4"
 langgraph-checkpoint-sqlite = "^2.0.1"
 langgraph-checkpoint-postgres = "^2.0.2"
 psycopg = "^3.2.3"
+twilio = "^9.3.7"
+flask = "^3.1.0"
 
 
 [build-system]

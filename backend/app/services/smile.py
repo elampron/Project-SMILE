@@ -8,7 +8,6 @@ from langchain.prompts import ChatPromptTemplate
 from langgraph.graph import add_messages, StateGraph
 from app.configs.settings import settings
 from app.tools.public_tools import web_search_tool, file_tools
-from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from app.tools.custom_tools import execute_python, execute_cmd  # Importing both custom tools
 
@@ -23,13 +22,8 @@ class Smile:
         self.logger.info("Smile class logger initialized")
         self.chatbot_agent_llm = self.llm_factory("chatbot_agent")
         self.embeddings_client = self.llm_factory("embeddings")
-        self.db_path = "smile.db"
-        # Create PostgreSQL connection string from config
-        postgres_conn = settings.app_config["postgres_config"]["conn"]
-        if not postgres_conn:
-            self.logger.error("PostgreSQL connection string not found in config")
-            postgres_conn = "postgresql://postgres:postgres@localhost:5432/checkpoints"
-        
+        self.db_path = "..//checkpoints//smile.db"
+
 
     def format_for_model(self, state: AgentState):
         return self.prompt.invoke({"messages": state["messages"]})
@@ -53,11 +47,6 @@ class Smile:
             ("placeholder", "{messages}"),
         ])
 
-        # Create the checkpoints table before using PostgresSaver
-        # create_checkpoints_table(self.settings.app_config["postgres_config"]["conn"])
-        
-
-        # with PostgresSaver.from_conn_string(conn_string=self.settings.app_config["postgres_config"]["conn"]) as checkpointer:
         with SqliteSaver.from_conn_string(conn_string=self.db_path) as checkpointer:
             graph = create_react_agent(
                 self.chatbot_agent_llm,

@@ -19,49 +19,6 @@ class ExtractorType(str, Enum):
     SUMMARY = "conversation_summarizer"
     # Add other extractors as needed
 
-class SmileMessage(BaseMessage):
-    """
-    Custom message class for Smile.
-    """
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier for the message")
-    timestamp: datetime = Field(..., description="Timestamp of the message in ISO 8601 format.")
-    extractors_processed: Dict[ExtractorType, bool] = Field(
-        default_factory=lambda: {extractor: False for extractor in ExtractorType},
-        description="Processing status of each extractor for this message."
-    )
-    content: str
-    type: str
-    processed: bool = Field(default=False, description="Flag indicating if message has been processed")
-    updated_at: Optional[datetime] = None
-    summarized: bool = Field(default=False, description="Flag indicating if message has been summarized")
-
-    @classmethod
-    def from_base_message(cls, message):
-        """
-        Class method to create a SmileMessage from a base message.
-
-        Args:
-            message: The base message object containing message data.
-
-        Returns:
-            SmileMessage: An instance of SmileMessage populated with data from the base message.
-        """
-        logger.debug(f"Converting base message to SmileMessage: {message}")
-
-        data = {
-            'id': uuid4(),
-            'content': message.content,
-            'type': message.type if hasattr(message, 'type') else message.__class__.__name__,
-            'timestamp': datetime.utcnow(),  # Use current time if not available
-            'processed': False,
-            'summarized': False
-        }
-
-        smile_message = cls(**data)
-
-        logger.debug(f"Created SmileMessage: {smile_message}")
-
-        return smile_message
 
 class User(BaseModel):
     """

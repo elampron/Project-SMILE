@@ -1,9 +1,7 @@
-from tkinter import Message
 from typing import List,Dict
 from datetime import datetime
 from uuid import uuid4
 from langchain_core.messages import BaseMessage, ToolMessage
-from app.models.agents import SmileMessage
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 
@@ -21,12 +19,6 @@ def llm_factory(settings, llm_name: str):
             raise ValueError(f"LLM config for {llm_name} not found")
 
         return llm  
-
-def estimate_tokens(messages: List[SmileMessage]) -> int:
-    # Estimate tokens based on message length
-    total_characters = sum(len(msg.content) for msg in messages)
-    tokens_per_char = 0.25  # Average token per character (adjust as needed)
-    return int(total_characters * tokens_per_char)
 
 
 def prepare_conversation_data(batch: List[BaseMessage]) -> List[Dict]:

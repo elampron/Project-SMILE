@@ -39,7 +39,7 @@ neo4j_config:
 main_user:
   name: "YourName"  # Required
   main_email: "your.email@example.com"  # Required
-  # PersonEntity details
+  # PersonEntity detailscon
   person_details:
     name: "Your Full Name"  # Optional
     birth_date: null  # Optional

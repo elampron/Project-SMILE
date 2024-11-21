@@ -1,6 +1,6 @@
 from datetime import datetime
 import logging
-from typing import Annotated, Sequence, TypedDict
+from typing import Annotated, Sequence, TypedDict, Dict
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessageChunk, ToolMessage, AIMessage
@@ -8,7 +8,7 @@ from langgraph.prebuilt import create_react_agent
 from langchain.prompts import ChatPromptTemplate
 from app.configs.settings import settings
 from app.tools.public_tools import web_search_tool, file_tools
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from app.tools.custom_tools import execute_python, execute_cmd  # Importing both custom tools
 from app.utils.llm import llm_factory
 from app.models.agents import AgentState, User
@@ -66,7 +66,7 @@ class Smile:
                 
                 # Create/update person entity if person details provided
                 if person_details := user_config.get("person_details"):
-                    person_details["name"] = user_config["name"]  # Ensure name matches
+                    
                     self.main_user_person = session.execute_write(
                         get_or_create_person_entity,
                         person_details
@@ -90,7 +90,20 @@ class Smile:
         return self.prompt.invoke({"messages": state["messages"][-self.settings.llm_config.get("chatbot_agent").get("max_messages"):],"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
     
     
-    def stream(self, user_input: str,config = None):
+    async def stream(self, message: str, config: Dict):
+        """
+        Asynchronous stream method that yields response chunks from the agent.
+
+        Args:
+            message (str): The user's input message.
+            config (Dict): Configuration dictionary.
+
+        Yields:
+            str: Chunks of the agent's response.
+
+        Raises:
+            Exception: If an error occurs during streaming.
+        """
         llm_config = self.settings.llm_config.get("chatbot_agent")
 
         if not llm_config:
@@ -98,52 +111,60 @@ class Smile:
             return
 
         if not llm_config.get("prompt_template"):
-            self.logger.error("Chatbot agent prompt template not found", extra={"llm_config": llm_config})
+            self.logger.error(
+                "Chatbot agent prompt template not found", extra={"llm_config": llm_config}
+            )
             return
 
+        # Combine public and custom tools
         tools = [web_search_tool] + file_tools + [execute_python, execute_cmd]
-       
 
+        # Define the prompt
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", llm_config["prompt_template"]),
             ("placeholder", "{messages}"),
             ("system", "Current date and time: {time}"),
         ])
 
-       
-
-        with SqliteSaver.from_conn_string(conn_string=self.db_path) as checkpointer:
+        # Use AsyncSqliteSaver with 'async with'
+        async with AsyncSqliteSaver.from_conn_string(conn_string=self.db_path) as checkpointer:
             graph = create_react_agent(
                 self.chatbot_agent_llm,
                 tools,
                 state_modifier=self.format_for_model,
-                checkpointer=checkpointer 
+                checkpointer=checkpointer
             )
 
-            
-            inputs = {"messages": [("user", user_input)], "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-
-            # Initialize variable to gather AI message content
-            ai_message_content = ""
+            inputs = {
+                "messages": [("user", message)],
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
 
             if not config:
                 config = {"thread_id": "MainThread"}
 
-            # Stream messages from the graph
-            for msg, metadata in graph.stream(inputs, stream_mode="messages", config=config):
-                # Check if the message is an AIMessage or AIMessageChunk
-                if isinstance(msg, (AIMessageChunk, AIMessage)):
-                    # Yield the content as it comes
-                    if msg.content:
-                        yield msg.content
-                        ai_message_content += msg.content  # Accumulate if needed
-                # Optionally handle other message types
-                elif isinstance(msg, ToolMessage):
-                    # Skip ToolMessages or process them as needed
-                    pass
-                else:
-                    # Handle other message types if necessary
-                    pass
+            try:
+                # Asynchronously stream messages from the graph
+                async for msg, metadata in graph.astream(
+                    inputs, stream_mode="messages", config=config
+                ):
+                    # Check if the message is an AIMessage or AIMessageChunk
+                    if isinstance(msg, (AIMessageChunk, AIMessage)):
+                        # Yield the content as it comes
+                        if msg.content:
+                            self.logger.debug(f"Yielding chunk of size: {len(msg.content)} bytes")
+                            yield msg.content
+                    elif isinstance(msg, ToolMessage):
+                        # Handle ToolMessages if needed
+                        pass
+                    else:
+                        # Handle other message types if necessary
+                        pass
+                self.logger.info(f"Streaming completed for thread_id: {config['thread_id']}")
+
+            except Exception as e:
+                self.logger.error(f"Error during streaming: {str(e)}", exc_info=True)
+                raise e
     
    
     

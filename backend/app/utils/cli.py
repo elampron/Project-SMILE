@@ -6,6 +6,7 @@ from rich.prompt import Prompt
 from rich.markdown import Markdown
 from app.agents.smile import Smile
 from app.configs.settings import settings
+import asyncio
 
 # Load the environment variables from the .env file
 load_dotenv()
@@ -47,7 +48,7 @@ console.print(Markdown(welcome_text))
 
 smile = Smile()
 
-def main():
+async def main():
     # Main loop
     while True:
         user_input = Prompt.ask("Enter a command:")
@@ -64,14 +65,13 @@ def main():
             console.print("Smiles is typing...\n")
 
             # Stream the response as it comes
-
             response_content = ""
-            for chunk in smile.stream(user_input,config={"thread_id": "MainThread"}):
+            async for chunk in smile.stream(user_input, config={"thread_id": "MainThread"}):
                 response_content += chunk
                 console.print(chunk, end="")
             console.print("\n")
 
 # Run the async main function
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
 

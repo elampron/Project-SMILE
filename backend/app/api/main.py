@@ -25,6 +25,9 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
+# Disable built-in GZip middleware if it's being used
+# You can comment out or remove GZip middleware configuration if present
+
 # Run the FastAPI app
 if __name__ == "__main__":
     import uvicorn

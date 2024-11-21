@@ -21,3 +21,27 @@ langchain_config:
 # Postgres configuration
 postgres_config:
   conn: "postgresql://postgres:postgres@localhost:5432/checkpoints"
+
+# Neo4j configuration
+neo4j_config:
+  uri: "bolt://localhost:7687"
+  username: "neo4j"
+  password: "secretdb"
+
+main_user:
+  name: "Eric"
+  main_email: "elampron@gmail.com"
+  id: "550e8400-e29b-41d4-a716-446655440000" # Example UUID
+  person_id: null # Optional UUID reference to PersonEntity
+  created_at: "2024-01-24T00:00:00Z" # Current timestamp in ISO format
+  updated_at: null # Optional timestamp for last update
+  person_details:
+    type: "Person"  # Entity type
+    name: "Eric Lampron"  # Full name
+    birth_date: null  # Birth date
+    email: "elampron@gmail.com"  # Email address
+    phone: "+14155550123"  # Phone number
+    address: "123 Main St, Anytown, USA"  # Physical address
+    notes: null  # Additional notes
+    category: "Human"  # Person category
+

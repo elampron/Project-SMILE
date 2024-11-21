@@ -11,7 +11,7 @@ langchain = "^0.3.7"
 langgraph = "^0.2.45"
 fastapi = "^0.115.4"
 uvicorn = "^0.32.0"
-pydantic = "^2.9.2"
+pydantic = {extras = ["email"], version = "^2.10.0"}
 langsmith = {version = "^0.1.142", optional = true}
 rich = "^13.9.4"
 pydantic-settings = "^2.6.1"
@@ -23,6 +23,11 @@ langgraph-checkpoint-postgres = "^2.0.2"
 psycopg = "^3.2.3"
 twilio = "^9.3.7"
 flask = "^3.1.0"
+ngrok = "^1.4.0"
+flask-ngrok = "^0.0.25"
+pyngrok = "^7.2.1"
+neo4j = "^5.26.0"
+langmem = "^0.0.4"
 
 
 [build-system]

@@ -6,12 +6,13 @@ chatbot_agent:
   name: "chatbot_Agent"
   description: "Chatbot Agent"
   provider: "openai" # OpenAI, anthropic
+  max_messages: 50
   params:
     model: "gpt-4o" # OpenAI model, anthropic model
     temperature: 0.5 # Temperature
     streaming: true
-    frequency_penalty: 2
-    presence_penalty: 2
+    # frequency_penalty: 1
+    # presence_penalty: 1
     # max_tokens: 1000 # Max tokens (optional)
   prompt_template: |
     You are Smiles, a witty and engaging AI assistant with a knack for remembering details and accessing current information.
@@ -29,6 +30,78 @@ chatbot_agent:
 
 
 
+entity_extractor_agent:
+  name: "entity_extractor_agent"
+  description: "Entity Extractor Agent"
+  provider: "openai" # OpenAI, anthropic
+  params:
+    model: "gpt-4o-mini" # OpenAI model, anthropic model
+    temperature: 0.0 # Temperature
+    streaming: false
+  prompt_template: |
+    Please analyze the following conversation and extract entities and relationships that are directly related to the user or the user's close contacts (family, friends, colleagues). Focus only on people the user is interacting with personally or mentions as part of their personal or professional life.
+    Avoid extracting entities from external sources such as websites, documents, media, or people the user does not have a personal connection with.
+    Represent the user consistently as "Eric Lampron", his full name and yourself as Smiles (your ai assistant name). Ensure that any relationships involving the user are correctly attributed to this representation.
+    Use the field descriptions and data types from the models to structure your response.
+
+    {examples}
+
+    Now, please process the following conversation:
+
+    Conversation Data:
+    ```json
+    {conversation_text}
+
+conversation_summarizer_agent:
+  name: "conversation_summarizer_agent"
+  description: "Conversation Summarizer Agent"
+  provider: "openai" # OpenAI, anthropic
+  params:
+    model: "gpt-4o-mini" # OpenAI model, anthropic model
+    temperature: 0.0 # Temperature
+    streaming: false
+  prompt_template: |
+    Please analyze the following conversation data between the user and the assistant. The conversation includes interactions with tools, represented by messages from the "tool" sender. Do not include the detailed content of tool outputs in the summary.
+
+    Your task is to generate a comprehensive summary that captures the key topics, actions, participants, sentiments, and any important details. Acknowledge the use of tools when they influence the conversation, but focus on the dialogue between the user and the assistant.
+
+    Use the field descriptions and data types from the models to structure your response.
+
+    {examples}
+
+    Now, please process the following conversation:
+
+    Conversation Data:
+    ```json
+    {conversation_text}
+    ```
+
+preference_extractor_agent:
+  name: "preference_extractor_agent"
+  description: "Preference Extractor Agent"
+  provider: "openai" # OpenAI, anthropic
+  params:
+    model: "gpt-4o-mini" # OpenAI model, anthropic model
+    temperature: 0.0 # Temperature
+    streaming: false
+  prompt_template: |
+    Given the conversation below, extract any preferences expressed by the participants.
+
+    Conversation:
+    {conversation_text}
+
+    Existing preference types: {existing_preference_types}
+
+    Examples:
+    {examples}
+
+    For each preference, provide:
+    - person_name: The name of the person the preference is for.
+    - preference_type: The type of preference (can be new or from existing types).
+    - importance: An integer from 1 to 5 indicating the importance. 5 should only be used if the preference is very important. Those level 5 preferences will always appear in your context,
+    - details: A structured JSON with the preference details. Store the information about the preference the same way you would like to retrieve it later. Because this is for your consomption only.
+
+    
 
 embeddings:
   name: "embeddings"

@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: Optional[str] = None # Tavily API key
     TWILIO_ACCOUNT_SID: Optional[str] = None # Twilio account sid
     TWILIO_AUTH_TOKEN: Optional[str] = None # Twilio auth token
+    NGROK_AUTHTOKEN: Optional[str] = None # Ngrok authtoken
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
+
     # Define the project settings
     @property
     def app_config(self):

@@ -1,0 +1,282 @@
+[
+    {
+      "conversation_data": [
+        {
+          "id": "msg-1",
+          "content": "Hi there! I'm planning to adopt a new puppy this weekend.",
+          "timestamp": "2023-10-01T09:00:00",
+          "type": "user"
+        },
+        {
+          "id": "msg-2",
+          "content": "That's fantastic! Do you have a specific breed in mind?",
+          "timestamp": "2023-10-01T09:00:10",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-3",
+          "content": "I'm leaning towards a Labrador Retriever. I've heard they're great family dogs.",
+          "timestamp": "2023-10-01T09:00:20",
+          "type": "user"
+        },
+        {
+          "id": "msg-4",
+          "content": "[Tool Output: Pet Adoption Service]",
+          "timestamp": "2023-10-01T09:00:25",
+          "type": "tool"
+        },
+        {
+          "id": "msg-5",
+          "content": "I found a Labrador Retriever named Buddy available for adoption at Happy Tails Shelter.",
+          "timestamp": "2023-10-01T09:00:30",
+          "type": "assistant"
+        }
+      ],
+      "expected_structured_output": {
+        "persons": [
+          {
+            "name": "Human",
+            "type": "Person",
+            "category": "Human",
+            "nickname": null,
+            "birth_date": null,
+            "email": "",
+            "phone": "",
+            "address": "",
+            "notes": ""
+          },
+          {
+            "name": "Buddy",
+            "type": "Person",
+            "category": "pet",
+            "nickname": null,
+            "birth_date": null,
+            "email": "",
+            "phone": "",
+            "address": "",
+            "notes": "Labrador Retriever available for adoption"
+          }
+        ],
+        "organizations": [
+          {
+            "name": "Happy Tails Shelter",
+            "type": "Organization",
+            "industry": "Animal Shelter",
+            "website": null,
+            "address": null,
+            "notes": ""
+          }
+        ],
+        "relationships": [
+          {
+            "from_entity_name": "Human",
+            "to_entity_name": "Buddy",
+            "type": "owns_pet",
+            "since": null,
+            "until": null,
+            "notes": ""
+          },
+          {
+            "from_entity_name": "Human",
+            "to_entity_name": "Happy Tails Shelter",
+            "type": "works_at",
+            "since": null,
+            "until": null,
+            "notes": ""
+          }
+        ]
+      }
+    },
+    {
+      "conversation_data": [
+        {
+          "id": "msg-6",
+          "content": "I'm looking to renew my subscription to the Premium Plan.",
+          "timestamp": "2023-10-02T14:30:00",
+          "type": "user"
+        },
+        {
+          "id": "msg-7",
+          "content": "Sure thing! Let me process that for you.",
+          "timestamp": "2023-10-02T14:30:10",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-8",
+          "content": "[Tool Output: Subscription Manager]",
+          "timestamp": "2023-10-02T14:30:15",
+          "type": "tool"
+        },
+        {
+          "id": "msg-9",
+          "content": "Your Premium Plan has been renewed successfully. Thank you for your continued support!",
+          "timestamp": "2023-10-02T14:30:20",
+          "type": "assistant"
+        }
+      ],
+      "expected_structured_output": {
+        "persons": [
+          {
+            "name": "Human",
+            "type": "Person",
+            "category": "Human",
+            "nickname": null,
+            "birth_date": null,
+            "email": "",
+            "phone": "",
+            "address": "",
+            "notes": ""
+          }
+        ],
+        "organizations": [],
+        "relationships": []
+      }
+    },
+    {
+      "conversation_data": [
+        {
+          "id": "msg-10",
+          "content": "Can you remind me to call John tomorrow morning?",
+          "timestamp": "2023-10-03T08:45:00",
+          "type": "user"
+        },
+        {
+          "id": "msg-11",
+          "content": "Of course! I'll set a reminder for you to call John at 9 AM tomorrow.",
+          "timestamp": "2023-10-03T08:45:10",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-12",
+          "content": "[Tool Output: Reminder Service]",
+          "timestamp": "2023-10-03T08:45:15",
+          "type": "tool"
+        },
+        {
+          "id": "msg-13",
+          "content": "Reminder set: Call John at 9 AM tomorrow.",
+          "timestamp": "2023-10-03T08:45:20",
+          "type": "assistant"
+        }
+      ],
+      "expected_structured_output": {
+        "persons": [
+          {
+            "name": "Human",
+            "type": "Person",
+            "category": "Human",
+            "nickname": null,
+            "birth_date": null,
+            "email": "",
+            "phone": "",
+            "address": "",
+            "notes": ""
+          },
+          {
+            "name": "John",
+            "type": "Person",
+            "category": "Human",
+            "nickname": null,
+            "birth_date": null,
+            "email": "",
+            "phone": "",
+            "address": "",
+            "notes": ""
+          }
+        ],
+        "organizations": [],
+        "relationships": []
+      }
+    },
+    {
+      "conversation_data": [
+        {
+          "id": "msg-14",
+          "content": "I'm feeling really stressed about my upcoming exams.",
+          "timestamp": "2023-10-04T16:00:00",
+          "type": "user"
+        },
+        {
+          "id": "msg-15",
+          "content": "I'm sorry you're feeling this way. Would you like some tips on stress management?",
+          "timestamp": "2023-10-04T16:00:10",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-16",
+          "content": "Yes, that would be great. I need all the help I can get.",
+          "timestamp": "2023-10-04T16:00:20",
+          "type": "user"
+        }
+      ],
+      "expected_structured_output": {
+        "persons": [
+          {
+            "name": "Human",
+            "type": "Person",
+            "category": "Human",
+            "nickname": null,
+            "birth_date": null,
+            "email": "",
+            "phone": "",
+            "address": "",
+            "notes": ""
+          }
+        ],
+        "organizations": [],
+        "relationships": []
+      }
+    },
+    {
+      "conversation_data": [
+        {
+          "id": "msg-17",
+          "content": "I need to update the billing address for my account.",
+          "timestamp": "2023-10-05T11:20:00",
+          "type": "user"
+        },
+        {
+          "id": "msg-18",
+          "content": "Sure, I can help with that. What is your new billing address?",
+          "timestamp": "2023-10-05T11:20:10",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-19",
+          "content": "It's 123 Maple Street, Springfield.",
+          "timestamp": "2023-10-05T11:20:20",
+          "type": "user"
+        },
+        {
+          "id": "msg-20",
+          "content": "[Tool Output: Address Updater]",
+          "timestamp": "2023-10-05T11:20:25",
+          "type": "tool"
+        },
+        {
+          "id": "msg-21",
+          "content": "Your billing address has been updated to 123 Maple Street, Springfield.",
+          "timestamp": "2023-10-05T11:20:30",
+          "type": "assistant"
+        }
+      ],
+      "expected_structured_output": {
+        "persons": [
+          {
+            "name": "Human",
+            "type": "Person",
+            "category": "Human",
+            "nickname": null,
+            "birth_date": null,
+            "email": "",
+            "phone": "",
+            "address": "123 Maple Street, Springfield",
+            "notes": ""
+          }
+        ],
+        "organizations": [],
+        "relationships": []
+      }
+    }
+  ]
+  

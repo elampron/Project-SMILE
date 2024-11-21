@@ -1,0 +1,154 @@
+**Example 1:**
+
+**Conversation:**
+
+User: I absolutely love receiving emails for updates. They keep me informed without being intrusive.
+
+**Expected Output:**
+
+```json
+{
+    "preferences": [
+      {
+        "person_name": "User",
+        "preference_type": "communication",
+        "importance": 5,
+        "details": {
+          "channel": "email",
+          "tone": "informative",
+          "frequency": "regular updates"
+        }
+      }
+    ]
+  }
+```
+**Example 2:**
+
+**Conversation:**
+
+User: When traveling, I prefer window seats in economy class for a more comfortable experience.
+User: My sister, Emily, enjoys aisle seats in business class because she likes to stretch her legs frequently.
+
+**Expected Output:**
+```json
+{
+    "preferences": [
+      {
+        "person_name": "User",
+        "preference_type": "travel",
+        "importance": 4,
+        "details": {
+          "seat_preference": "window",
+          "class": "economy",
+          "reason": "more comfortable experience"
+        }
+      },
+      {
+        "person_name": "Emily",
+        "preference_type": "travel",
+        "importance": 3,
+        "details": {
+          "seat_preference": "aisle",
+          "class": "business",
+          "reason": "likes to stretch legs frequently"
+        }
+      }
+    ]
+  }
+```
+**Example 3:**
+
+**Conversation:**
+User: I prefer using a dark theme for the application as it's easier on my eyes during night time.
+User: My friend, Jake, likes the light theme because it feels more vibrant to him.
+
+**Expected Output:**
+```json
+{
+    "preferences": [
+      {
+        "person_name": "User",
+        "preference_type": "system",
+        "importance": 5,
+        "details": {
+          "theme": "dark",
+          "reason": "easier on eyes during night time"
+        }
+      },
+      {
+        "person_name": "Jake",
+        "preference_type": "system",
+        "importance": 2,
+        "details": {
+          "theme": "light",
+          "reason": "feels more vibrant"
+        }
+      }
+    ]
+  }
+```
+**Example 4:**
+
+**Conversation:**
+
+User: I like receiving notifications via text messages because I can respond quickly on the go.
+User: My colleague, Sarah, prefers push notifications on her phone as she finds them more convenient.
+
+**Expected Output:**
+```json
+{
+    "preferences": [
+      {
+        "person_name": "User",
+        "preference_type": "communication",
+        "importance": 4,
+        "details": {
+          "channel": "text messages",
+          "reason": "can respond quickly on the go"
+        }
+      },
+      {
+        "person_name": "Sarah",
+        "preference_type": "communication",
+        "importance": 3,
+        "details": {
+          "channel": "push notifications",
+          "reason": "finds them more convenient"
+        }
+      }
+    ]
+  }
+```
+**Example 5:**
+
+**Conversation:**
+
+User: I enjoy having personalized meal plans that cater to my dietary restrictions.
+User: My partner, Laura, prefers meal plans that focus on high-protein options.
+
+**Expected Output:**
+```json
+{
+    "preferences": [
+      {
+        "person_name": "User",
+        "preference_type": "food",
+        "importance": 5,
+        "details": {
+          "meal_plan": "personalized",
+          "requirements": "dietary restrictions"
+        }
+      },
+      {
+        "person_name": "Laura",
+        "preference_type": "food",
+        "importance": 4,
+        "details": {
+          "meal_plan": "high-protein",
+          "focus": "high-protein options"
+        }
+      }
+    ]
+  }
+```
+  

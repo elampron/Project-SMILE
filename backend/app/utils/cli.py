@@ -4,15 +4,19 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.markdown import Markdown
-from app.services.smile import Smile
+from app.agents.smile import Smile
 from app.configs.settings import settings
 
 # Load the environment variables from the .env file
 load_dotenv()
 
+# os.environ["LANGCHAIN_TRACING_V2"] = "true"
+# os.environ["LANGCHAIN_ENDPOINT"] = settings.app_config["langchain_config"]["endpoint"]
+# os.environ["LANGCHAIN_PROJECT"] = settings.app_config["langchain_config"]["project"]
+
 # Logging setup
 logging.basicConfig(
-    level=logging.ERROR,
+    level=logging.CRITICAL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("CLI")
@@ -60,8 +64,9 @@ def main():
             console.print("Smiles is typing...\n")
 
             # Stream the response as it comes
+
             response_content = ""
-            for chunk in smile.stream(user_input):
+            for chunk in smile.stream(user_input,config={"thread_id": "MainThread"}):
                 response_content += chunk
                 console.print(chunk, end="")
             console.print("\n")

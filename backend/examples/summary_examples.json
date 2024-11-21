@@ -1,0 +1,341 @@
+[
+    {
+      "conversation_data": [
+        {
+          "id": "msg-1",
+          "content": "Hey, I'm thinking of planning a surprise birthday party for my sister Emily next weekend.",
+          "timestamp": "2023-10-01T10:15:00",
+          "type": "user"
+        },
+        {
+          "id": "msg-2",
+          "content": "That's a wonderful idea! How can I assist you with the planning?",
+          "timestamp": "2023-10-01T10:15:10",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-3",
+          "content": "Can you help me come up with some decoration ideas and maybe a guest list?",
+          "timestamp": "2023-10-01T10:15:20",
+          "type": "user"
+        },
+        {
+          "id": "msg-4",
+          "content": "Absolutely! Let's start with the guest list. Who would you like to invite?",
+          "timestamp": "2023-10-01T10:15:30",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-5",
+          "content": "Definitely our parents, her best friend Sarah, and a few of her colleagues from work.",
+          "timestamp": "2023-10-01T10:15:40",
+          "type": "user"
+        }
+      ],
+      "expected_structured_output": {
+        "id": "summary-1",
+        "content": "The user is planning a surprise birthday party for his sister Emily next weekend. They discussed creating a guest list, including their parents, Emily's best friend Sarah, and some of her colleagues. The assistant offered help with decoration ideas and planning.",
+        "topics": ["Birthday Party Planning", "Guest List Creation"],
+        "action_items": [
+          {
+            "description": "Create a guest list for Emily's surprise party",
+            "assignee": "Human",
+            "due_date": null
+          },
+          {
+            "description": "Brainstorm decoration ideas for the party",
+            "assignee": "Assistant",
+            "due_date": null
+          }
+        ],
+        "participants": [
+          {
+            "name": "Human",
+            "role": "Brother"
+          },
+          {
+            "name": "Emily",
+            "role": "Sister"
+          },
+          {
+            "name": "Sarah",
+            "role": "Emily's Best Friend"
+          }
+        ],
+        "sentiments": {
+          "overall_sentiment": "Positive",
+          "emotions": ["Excitement", "Joy"]
+        },
+        "timeframe": {
+          "start_date": "2023-10-08T00:00:00",
+          "end_date": "2023-10-08T23:59:59"
+        },
+        "location": null,
+        "events": ["Emily's Birthday Party"],
+        "tool_interactions": [],
+        "created_at": "2023-10-01T10:15:50",
+        "message_ids": ["msg-1", "msg-2", "msg-3", "msg-4", "msg-5"]
+      }
+    },
+    {
+      "conversation_data": [
+        {
+          "id": "msg-6",
+          "content": "I had a really rough day at work. My project proposal was rejected, and I feel defeated.",
+          "timestamp": "2023-10-02T18:45:00",
+          "type": "user"
+        },
+        {
+          "id": "msg-7",
+          "content": "I'm sorry to hear that. It's okay to feel this way. Would you like to talk about it?",
+          "timestamp": "2023-10-02T18:45:10",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-8",
+          "content": "I just don't understand why they didn't like it. I spent weeks on it.",
+          "timestamp": "2023-10-02T18:45:20",
+          "type": "user"
+        },
+        {
+          "id": "msg-9",
+          "content": "Maybe getting some feedback could help. Do you think you could ask your manager for more details?",
+          "timestamp": "2023-10-02T18:45:30",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-10",
+          "content": "I suppose that's a good idea. I'll try to set up a meeting tomorrow.",
+          "timestamp": "2023-10-02T18:45:40",
+          "type": "user"
+        }
+      ],
+      "expected_structured_output": {
+        "id": "summary-2",
+        "content": "The user is feeling upset after his project proposal at work was rejected. The assistant offered emotional support and suggested seeking feedback from his manager. The user agreed to set up a meeting to discuss the proposal.",
+        "topics": ["Work Challenges", "Project Proposal", "Emotional Support"],
+        "action_items": [
+          {
+            "description": "Set up a meeting with the manager to discuss proposal feedback",
+            "assignee": "Human",
+            "due_date": "2023-10-03T00:00:00"
+          }
+        ],
+        "participants": [
+          {
+            "name": "Human",
+            "role": "Employee"
+          }
+        ],
+        "sentiments": {
+          "overall_sentiment": "Negative",
+          "emotions": ["Frustration", "Disappointment"]
+        },
+        "timeframe": {
+          "start_date": "2023-10-02T00:00:00",
+          "end_date": null
+        },
+        "location": null,
+        "events": ["Project Proposal Rejection"],
+        "tool_interactions": [],
+        "created_at": "2023-10-02T18:45:50",
+        "message_ids": ["msg-6", "msg-7", "msg-8", "msg-9", "msg-10"]
+      }
+    },
+    {
+      "conversation_data": [
+        {
+          "id": "msg-11",
+          "content": "Can you help me book a table for two at an Italian restaurant tonight?",
+          "timestamp": "2023-10-03T12:00:00",
+          "type": "user"
+        },
+        {
+          "id": "msg-12",
+          "content": "Sure! Let me check available Italian restaurants for tonight.",
+          "timestamp": "2023-10-03T12:00:10",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-13",
+          "content": "[Tool Output: Reservation Service]",
+          "timestamp": "2023-10-03T12:00:15",
+          "type": "tool"
+        },
+        {
+          "id": "msg-14",
+          "content": "I've booked a table for two at Luigi's Italian Bistro at 7 PM tonight.",
+          "timestamp": "2023-10-03T12:00:20",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-15",
+          "content": "Perfect, thank you!",
+          "timestamp": "2023-10-03T12:00:30",
+          "type": "user"
+        }
+      ],
+      "expected_structured_output": {
+        "id": "summary-3",
+        "content": "The user asked the assistant to book a table for two at an Italian restaurant for tonight. The assistant used a reservation service to book a table at Luigi's Italian Bistro at 7 PM. The user expressed appreciation.",
+        "topics": ["Restaurant Reservation", "Dining Plans"],
+        "action_items": [],
+        "participants": [
+          {
+            "name": "Human",
+            "role": "User"
+          },
+          {
+            "name": "Luigi's Italian Bistro",
+            "role": "Restaurant"
+          }
+        ],
+        "sentiments": {
+          "overall_sentiment": "Positive",
+          "emotions": ["Satisfaction"]
+        },
+        "timeframe": {
+          "start_date": "2023-10-03T19:00:00",
+          "end_date": null
+        },
+        "location": "Luigi's Italian Bistro",
+        "events": ["Dinner Reservation"],
+        "tool_interactions": ["Reservation Service"],
+        "created_at": "2023-10-03T12:00:40",
+        "message_ids": ["msg-11", "msg-12", "msg-13", "msg-14", "msg-15"]
+      }
+    },
+    {
+      "conversation_data": [
+        {
+          "id": "msg-16",
+          "content": "I'm thinking about taking a vacation next month but not sure where to go.",
+          "timestamp": "2023-10-04T09:30:00",
+          "type": "user"
+        },
+        {
+          "id": "msg-17",
+          "content": "That sounds exciting! Do you have any destinations in mind?",
+          "timestamp": "2023-10-04T09:30:10",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-18",
+          "content": "I was considering either the mountains or the beach, but I'm worried about the budget.",
+          "timestamp": "2023-10-04T09:30:20",
+          "type": "user"
+        },
+        {
+          "id": "msg-19",
+          "content": "We can look into affordable options for both. Would you like me to gather some suggestions?",
+          "timestamp": "2023-10-04T09:30:30",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-20",
+          "content": "Yes, please. That would be helpful.",
+          "timestamp": "2023-10-04T09:30:40",
+          "type": "user"
+        }
+      ],
+      "expected_structured_output": {
+        "id": "summary-4",
+        "content": "The user is considering taking a vacation next month but is undecided between the mountains and the beach due to budget concerns. The assistant offered to gather affordable options for both destinations, and the user agreed.",
+        "topics": ["Vacation Planning", "Budget Concerns", "Destination Selection"],
+        "action_items": [
+          {
+            "description": "Gather affordable vacation options for mountain and beach destinations",
+            "assignee": "Assistant",
+            "due_date": null
+          }
+        ],
+        "participants": [
+          {
+            "name": "Human",
+            "role": "User"
+          }
+        ],
+        "sentiments": {
+          "overall_sentiment": "Neutral",
+          "emotions": ["Uncertainty", "Hopefulness"]
+        },
+        "timeframe": {
+          "start_date": "2023-11-01T00:00:00",
+          "end_date": "2023-11-30T23:59:59"
+        },
+        "location": null,
+        "events": ["Upcoming Vacation"],
+        "tool_interactions": [],
+        "created_at": "2023-10-04T09:30:50"
+      }
+    },
+    {
+      "conversation_data": [
+        {
+          "id": "msg-21",
+          "content": "I've been feeling under the weather lately, constant headaches and fatigue.",
+          "timestamp": "2023-10-05T14:20:00",
+          "type": "user"
+        },
+        {
+          "id": "msg-22",
+          "content": "I'm sorry to hear that. It might be a good idea to consult a doctor. Would you like me to help schedule an appointment?",
+          "timestamp": "2023-10-05T14:20:10",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-23",
+          "content": "Yes, please. The sooner, the better.",
+          "timestamp": "2023-10-05T14:20:20",
+          "type": "user"
+        },
+        {
+          "id": "msg-24",
+          "content": "[Tool Output: Appointment Scheduler]",
+          "timestamp": "2023-10-05T14:20:25",
+          "type": "tool"
+        },
+        {
+          "id": "msg-25",
+          "content": "I've scheduled an appointment with Dr. Smith tomorrow at 10 AM.",
+          "timestamp": "2023-10-05T14:20:30",
+          "type": "assistant"
+        },
+        {
+          "id": "msg-26",
+          "content": "Thank you. I appreciate your help.",
+          "timestamp": "2023-10-05T14:20:40",
+          "type": "user"
+        }
+      ],
+      "expected_structured_output": {
+        "id": "summary-5",
+        "content": "The user mentioned experiencing constant headaches and fatigue. The assistant suggested consulting a doctor and scheduled an appointment with Dr. Smith for the next day at 10 AM using an appointment scheduler tool. The user expressed gratitude.",
+        "topics": ["Health Concerns", "Doctor's Appointment"],
+        "action_items": [],
+        "participants": [
+          {
+            "name": "Human",
+            "role": "User"
+          },
+          {
+            "name": "Dr. Smith",
+            "role": "Doctor"
+          }
+        ],
+        "sentiments": {
+          "overall_sentiment": "Concerned",
+          "emotions": ["Worry", "Relief"]
+        },
+        "timeframe": {
+          "start_date": "2023-10-06T10:00:00",
+          "end_date": null
+        },
+        "location": "Dr. Smith's Clinic",
+        "events": ["Medical Appointment"],
+        "tool_interactions": ["Appointment Scheduler"],
+        "created_at": "2023-10-05T14:20:50"
+      }
+    }
+  ]
+  

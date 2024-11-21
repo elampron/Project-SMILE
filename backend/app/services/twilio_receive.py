@@ -1,13 +1,16 @@
 from flask import Flask, request, redirect
+import ngrok
 from twilio.twiml.messaging_response import MessagingResponse
-from app.services.smile import Smile
+from app.agents.smile import Smile
 import logging
-
+import os
+from app.configs.settings import settings
 # Logging setup
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
 smile = Smile()
 
 @app.route("/sms", methods=['GET', 'POST'])
@@ -27,24 +30,7 @@ def sms_reply():
 
     return str(resp)
 
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # Add a message
-    resp.message("The Robots are coming! Head for the hills!")
-
-    return str(resp)
 
 if __name__ == "__main__":
+
     app.run(debug=True)

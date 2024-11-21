@@ -161,6 +161,12 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Database
+node_modules/
+
+# Sensitive files
 db/data/
 smile.db*
+neo4j-data/
+checkpoints/
+backend/smiles_chest/
+app_config.yaml

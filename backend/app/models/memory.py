@@ -1,9 +1,12 @@
 import uuid
-from pydantic import BaseModel, Field
-from typing import List, Optional, Literal,Dict
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Literal,Dict, Any, Union
 from datetime import datetime
 from uuid import UUID, uuid4
 from enum import Enum
+import logging
+
+logger = logging.getLogger(__name__)
 
 class PersonCategory(str, Enum):
     """Enumeration of possible person categories."""
@@ -35,6 +38,7 @@ class BaseEntity(BaseModel):
         type (str): Type of the entity (e.g., 'Person', 'Organization').
         created_at (datetime): Timestamp when the entity was created.
         updated_at (Optional[datetime]): Timestamp when the entity was last updated.
+        embedding (Optional[List[float]]): Vector embedding for similarity search
     """
     id: UUID = Field(default_factory=uuid4, description="Unique identifier for the entity.")
     db_id: Optional[str] = Field(None, description="Database ID of the entity.")
@@ -42,6 +46,7 @@ class BaseEntity(BaseModel):
     type: str = Field(..., description="Type of the entity (e.g., 'Person', 'Organization').")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Timestamp when the entity was created.")
     updated_at: Optional[datetime] = Field(None, description="Timestamp when the entity was last updated.")
+    embedding: Optional[List[float]] = Field(default=None, description="Vector embedding for similarity search")
 
 class PersonEntity(BaseEntity):
     """
@@ -203,12 +208,13 @@ class EntityExtractorResponse(BaseModel):
 
 class ActionItem(BaseModel):
     """
-    Model representing an action item extracted from the conversation.
+    Task or follow-up identified in conversation.
+    Extract specific, actionable items with clear ownership and timing.
 
     Attributes:
-        description (str): Description of the action item.
-        assignee (Optional[str]): Person responsible for the action.
-        due_date (Optional[datetime]): Deadline for the action item.
+        description (str): Clear, actionable task description
+        assignee (Optional[str]): Person responsible for the task
+        due_date (Optional[datetime]): Task deadline or target completion date
     """
     description: str
     assignee: Optional[str]
@@ -216,11 +222,12 @@ class ActionItem(BaseModel):
 
 class Participant(BaseModel):
     """
-    Model representing a participant in the conversation.
+    Person involved in or mentioned in conversation.
+    Include both active participants and mentioned individuals.
 
     Attributes:
-        name (str): Name of the participant.
-        role (Optional[str]): Role or relationship to the user (e.g., friend, colleague).
+        name (str): Person's name as mentioned in conversation
+        role (Optional[str]): Their role or relationship (e.g., "Team Lead", "Client")
     """
     name: str
     role: Optional[str]
@@ -236,70 +243,179 @@ class SentimentAnalysis(BaseModel):
     overall_sentiment: str
     emotions: List[str]
 
-class Timeframe(BaseModel):
+class TimeFrame(BaseModel):
     """
-    Model representing time-related information from the conversation.
+    Time context of discussed events or activities.
+    Extract both explicit and implied timing information.
+    Accepts flexible date formats including ISO strings and natural language.
 
     Attributes:
-        start_date (Optional[datetime]): Start date mentioned.
-        end_date (Optional[datetime]): End date mentioned.
+        start_time (Optional[datetime]): When events begin/began
+        end_time (Optional[datetime]): When events end/ended
     """
-    start_date: Optional[datetime]
-    end_date: Optional[datetime]
+    start_time: Optional[Union[datetime, str]] = Field(
+        default_factory=datetime.utcnow,
+        description="Start time of the timeframe. Can be datetime or string."
+    )
+    end_time: Optional[Union[datetime, str]] = Field(
+        default_factory=datetime.utcnow,
+        description="End time of the timeframe. Can be datetime or string."
+    )
+
+    @field_validator('start_time', 'end_time')
+    @classmethod
+    def parse_datetime(cls, value: Optional[Union[datetime, str]]) -> Optional[datetime]:
+        """
+        Validates and converts datetime fields.
+        Accepts datetime objects and string representations.
+        
+        Args:
+            value: datetime object or string representation of date/time
+            
+        Returns:
+            datetime: Parsed datetime object
+            
+        Raises:
+            ValueError: If string cannot be parsed into datetime
+        """
+        if value is None:
+            return datetime.utcnow()
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                # Try parsing ISO format first
+                return datetime.fromisoformat(value.replace('Z', '+00:00'))
+            except ValueError:
+                try:
+                    # Fallback to basic format
+                    return datetime.strptime(value, '%Y-%m-%d')
+                except ValueError:
+                    # If all parsing fails, return current time
+                    logger.warning(f"Could not parse datetime string: {value}. Using current time.")
+                    return datetime.utcnow()
+        return datetime.utcnow()
+
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
+        """
+        Custom serialization to ensure datetime objects are converted to ISO strings.
+        """
+        data = super().model_dump(*args, **kwargs)
+        # Convert datetime objects to ISO format strings
+        if data.get('start_time'):
+            data['start_time'] = data['start_time'].isoformat()
+        if data.get('end_time'):
+            data['end_time'] = data['end_time'].isoformat()
+        return data
 
 class ConversationSummary(BaseModel):
     """
-    Model representing a summary of a conversation batch.
+    Structured summary of conversation content and context.
+    Extract key information into organized categories.
 
     Attributes:
-        id (UUID): Unique identifier for the summary.
-        content (str): The generated summary text.
-        topics (List[str]): Main topics discussed.
-        action_items (List[ActionItem]): List of action items identified.
-        participants (List[Participant]): Participants involved in the conversation.
-        sentiments (Optional[SentimentAnalysis]): Sentiment analysis of the conversation.
-        timeframe (Optional[Timeframe]): Time-related information mentioned.
-        location (Optional[str]): Locations mentioned in the conversation.
-        events (List[str]): Significant events referenced.
-        created_at (datetime): Timestamp when the summary was created.
-        tool_interactions (List[str]): Short descriptions of tool interactions included in the summary.
+        id (UUID): Unique identifier
+        content (str): Clear summary of main points and decisions
+        topics (List[str]): Key subjects discussed
+        action_items (List[ActionItem]): Tasks and follow-ups
+        participants (List[Participant]): People involved
+        sentiments (Dict[str, Any]): Emotional tone analysis
+        location (Optional[str]): Where conversation/events took place
+        events (List[str]): Key events mentioned
+        message_ids (List[str]): IDs of messages included in summary
+        created_at (datetime): When summary was created
+        start_time (datetime): When events begin/began (set programmatically)
+        end_time (datetime): When events end/ended (set programmatically)
+        embedding (Optional[List[float]]): Vector embedding for search
     """
     id: UUID = Field(default_factory=uuid4)
     content: str
     topics: List[str]
-    action_items: List['ActionItem']
-    participants: List['Participant']
-    sentiments: Optional['SentimentAnalysis']
-    timeframe: Optional['Timeframe']
-    location: Optional[str]
-    events: List[str]
+    action_items: List[ActionItem]
+    participants: List[Participant]
+    sentiments: Dict[str, Any]
+    location: Optional[str] = None
+    events: List[str] = Field(default_factory=list)
+    message_ids: List[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    tool_interactions: List[str] = [] 
+    start_time: datetime = Field(default_factory=datetime.utcnow)
+    end_time: datetime = Field(default_factory=datetime.utcnow)
+    embedding: Optional[List[float]] = Field(default=None, description="Vector embedding for similarity search")
 
 class Preference(BaseModel):
+    """
+    Model representing a user preference.
+    
+    Attributes:
+        id (UUID): Unique identifier for the preference
+        person_id (UUID): ID of the person this preference belongs to
+        preference_type (str): Type of preference (e.g., 'organization', 'memory')
+        importance (int): Importance level of the preference (1-5)
+        details (Dict[str, Any]): Flexible dictionary for storing preference details
+        created_at (datetime): Timestamp when the preference was created
+        updated_at (datetime): Timestamp when the preference was last updated
+        embedding (Optional[List[float]]): Vector embedding for similarity search
+    """
     model_config = {
-        "arbitrary_types_allowed": True
+        "arbitrary_types_allowed": True,
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "details": {
+                        "folder_name": "smiles_chest",
+                        "reason": "needs good structure due to severe A.D.D."
+                    }
+                }
+            ]
+        }
     }
     
-    id: uuid.UUID = uuid.uuid4()
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
     person_id: uuid.UUID
     preference_type: str
-    importance: int
-    details: Dict[str, any]
-    created_at: datetime = datetime.now()
-    updated_at: datetime = datetime.now()
+    importance: int = Field(ge=1, le=5)
+    details: Dict[str, str] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    embedding: Optional[List[float]] = Field(default=None, description="Vector embedding for similarity search")
 
 class PreferenceResponse(BaseModel):
+    """
+    Model for preference response data.
+    
+    Attributes:
+        person_name (str): Name of the person
+        preference_type (str): Type of preference
+        importance (int): Importance level (1-5)
+        details (Dict[str, str]): Flexible dictionary for preference details
+    """
     model_config = {
-        "arbitrary_types_allowed": True  # Add this configuration
+        "arbitrary_types_allowed": True,
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "details": {
+                        "folder_name": "smiles_chest",
+                        "reason": "needs good structure due to severe A.D.D."
+                    }
+                }
+            ]
+        }
     }
+    
     person_name: str
     preference_type: str
-    importance: int
-    details: Dict[str, any]
+    importance: int = Field(ge=1, le=5)
+    details: Dict[str, str] = Field(default_factory=dict)
 
 class PreferenceExtractorResponse(BaseModel):
+    """
+    Model for the complete preference extraction response.
+    
+    Attributes:
+        preferences (List[PreferenceResponse]): List of extracted preferences
+    """
     model_config = {
-        "arbitrary_types_allowed": True  # Add this configuration
+        "arbitrary_types_allowed": True
     }
     preferences: List[PreferenceResponse]

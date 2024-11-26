@@ -3,15 +3,48 @@ from typing import Annotated, Sequence, Optional, Dict, List, Union
 from marshmallow import ValidationError
 from pydantic import BaseModel, Field, model_validator, EmailStr
 from langgraph.graph import add_messages, StateGraph
+from uuid import UUID, uuid4
+
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessageChunk, ToolMessage, AIMessage
 from enum import Enum
 from app.models.memory import ConversationSummary
 import logging
-from uuid import UUID, uuid4
 
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+
+def add_summaries(left: List[ConversationSummary], right: List[ConversationSummary]) -> List[ConversationSummary]:
+    """Synchronous version of add_summaries for state management."""
+    # Ensure inputs are lists
+    if not isinstance(left, list):
+        left = [left]
+    if not isinstance(right, list):
+        right = [right]
+    
+    # Ensure all summaries have IDs
+    for summary in left + right:
+        if not summary.id:
+            summary.id = str(uuid4())
+
+    # Create index of existing summaries by ID
+    left_idx_by_id = {str(s.id): i for i, s in enumerate(left)}
+    
+    # Create new list starting with existing summaries
+    merged = left.copy()
+    
+    # Add or update with new summaries
+    for summary in right:
+        str_id = str(summary.id)
+        if str_id in left_idx_by_id:
+            # Replace existing summary
+            merged[left_idx_by_id[str_id]] = summary
+        else:
+            # Add new summary
+            merged.append(summary)
+
+    return merged
 
 
 class ExtractorType(str, Enum):
@@ -39,26 +72,11 @@ class User(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None 
 
+
 class AgentState(BaseModel):
     messages: Annotated[list, add_messages]
-    summaries: List[ConversationSummary] = []
-    summary: Optional[str] = None  # Add this line
+    summaries: Annotated[List[ConversationSummary], add_summaries] = []
+    summary: Optional[str] = None
     user_current_location: Optional[str] = None
     current_mood: Optional[str] = None
-
-    # @model_validator(mode='before')
-    # def convert_messages(cls, values):
-    #     messages = values.get('messages', [])
-    #     converted_messages = []
-    #     for msg in messages:
-    #         if isinstance(msg, SmileMessage):
-    #             converted_messages.append(msg)
-    #         elif isinstance(msg, (HumanMessage, AIMessage, ToolMessage)):
-    #             # Convert to SmileMessage
-    #             converted_msg = convert_messages(msg)
-    #             converted_messages.append(converted_msg)
-    #         else:
-    #             raise ValueError(f"Unsupported message type: {type(msg)}")
-    #     values['messages'] = converted_messages
-    #     return values
 

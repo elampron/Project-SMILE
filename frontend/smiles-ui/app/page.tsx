@@ -17,10 +17,39 @@ export default function ChatInterface() {
   const [inputMessage, setInputMessage] = useState('')
   const synth = useRef<SpeechSynthesis | null>(null)
   const [threadId, setThreadId] = useState<string>("MainThread")
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     synth.current = window.speechSynthesis
   }, [])
+
+  // Fetch conversation history on page load
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const response = await fetch(`http://elmonster.local:8000/history?thread_id=${threadId}&num_messages=50`)
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+
+        const data = await response.json()
+        if (data.status === 'success') {
+          // Map the data to ChatMessage format
+          const historyMessages: ChatMessage[] = data.data.map((msg: any) => ({
+            content: msg.content,
+            role: msg.role === 'human' ? 'user' : 'assistant',
+            timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
+            thread_id: threadId
+          }))
+          setMessages(historyMessages)
+        } else {
+          console.error('Unexpected response format:', data)
+        }
+      } catch (error) {
+        console.error('Error fetching conversation history:', error)
+      }
+    }
+
+    fetchHistory()
+  }, [threadId])
 
   // Function to handle sending messages
   const sendMessage = async () => {
@@ -37,7 +66,7 @@ export default function ChatInterface() {
     setMessages(prev => [...prev, userMessage])
 
     try {
-      const response = await fetch('http://localhost:8000/chat', {
+      const response = await fetch('http://elmonster.local:8000/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -98,6 +127,14 @@ export default function ChatInterface() {
     }
   }
 
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages])
+
   return (
     <div className="flex flex-col h-screen bg-black text-green-500 font-mono">
       {/* Header */}
@@ -119,28 +156,32 @@ export default function ChatInterface() {
           </button>
         ))}
       </nav>
-      <main className="flex-grow flex">
-        <div className="flex-grow border border-green-500 m-4 p-4 relative">
-          {/* Chat messages area */}
-          <div className="overflow-auto h-[calc(100%-60px)] mb-4">
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                className={`mb-4 p-2 rounded ${
-                  message.role === 'user' 
-                    ? 'bg-green-900/20 ml-auto max-w-[80%]' 
-                    : 'bg-green-900/10 mr-auto max-w-[80%]'
-                }`}
-              >
-                <div className="text-sm opacity-50 mb-1">
-                  {message.role === 'user' ? 'You' : 'S.M.I.L.E.'}
+      <main className="flex-grow flex overflow-hidden">
+        {/* Chat container - add overflow-hidden to contain scrolling */}
+        <div className="flex-grow border border-green-500 m-4 p-4 relative overflow-hidden">
+          {/* Messages area - explicit height calculation */}
+          <div className="absolute top-4 left-4 right-4 bottom-20 overflow-y-auto">
+            <div className="flex flex-col">
+              {messages.map((message, index) => (
+                <div
+                  key={index}
+                  className={`mb-4 p-2 rounded ${
+                    message.role === 'user' 
+                      ? 'bg-green-900/20 ml-auto max-w-[80%]' 
+                      : 'bg-green-900/10 mr-auto max-w-[80%]'
+                  }`}
+                >
+                  <div className="text-sm opacity-50 mb-1">
+                    {message.role === 'user' ? 'You' : 'S.M.I.L.E.'}
+                  </div>
+                  <div>{message.content}</div>
                 </div>
-                <div>{message.content}</div>
-              </div>
-            ))}
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
 
-          {/* Input area */}
+          {/* Input area - position absolute from bottom */}
           <div className="absolute bottom-4 left-4 right-4 flex items-center">
             <input
               type="text"
@@ -159,20 +200,8 @@ export default function ChatInterface() {
           </div>
         </div>
 
-        {/* HAL-like icon with ripple effect */}
-        <div className="flex items-center justify-center p-4">
-          <div className={`w-32 h-32 rounded-full bg-gradient-to-br from-red-700 to-red-500 flex items-center justify-center relative overflow-hidden ${isRippling ? 'animate-pulse' : ''}`}>
-            <div className="w-24 h-24 rounded-full bg-red-600 flex items-center justify-center">
-              <div className="w-4 h-4 rounded-full bg-yellow-400"></div>
-            </div>
-            {isRippling && (
-              <>
-                <div className="absolute inset-0 bg-red-400 opacity-50 animate-ripple"></div>
-                <div className="absolute inset-0 bg-red-400 opacity-50 animate-ripple animation-delay-500"></div>
-              </>
-            )}
-          </div>
-        </div>
+        {/* HAL icon section - fixed width */}
+       
       </main>
     </div>
   )

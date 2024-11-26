@@ -1,82 +1,64 @@
 import subprocess
 import logging
-from langchain_core.tools import tool
-from app.configs.settings import settings
+from langchain_core.tools import BaseTool, StructuredTool, tool
+from typing import Optional
+from pydantic import BaseModel, Field
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Define schema for Python execution tool
+class PythonExecuteSchema(BaseModel):
+    code: str = Field(description="Python code to execute")
+
+# Define schema for Command execution tool
+class CommandExecuteSchema(BaseModel):
+    command: str = Field(description="Command to execute")
+
 @tool
 def execute_python(code: str) -> str:
-    """
-    Execute Python code and return the output. This tool provides a REPL-like environment for running Python code.
-
+    """Execute Python code and return the result.
+    
+    Use this tool when you need to execute Python code. The code will be evaluated
+    and the result returned as a string.
+    
     Args:
-        code (str): The Python code to execute. NEVER USE MARKDOWN CODE BLOCKS. Use plain code ONLY.
-
+        code (str): Python code to execute
+        
     Returns:
-        str: The output of the executed code or an error message if execution fails.
-    
-    Raises:
-        subprocess.TimeoutExpired: If code execution exceeds timeout limit
-        Exception: For any other execution errors
+        str: Result of code execution or error message
     """
-    logger.info(f"Attempting to execute Python code: {code[:100]}...")
-    
+    logger.info(f"Executing Python code: {code}")
     try:
-        result = subprocess.run(
-            ["python", "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode == 0:
-            logger.info("Python code execution successful")
-            return result.stdout
-        else:
-            logger.error(f"Python code execution failed: {result.stderr}")
-            return f"Error: {result.stderr}"
-            
-    except subprocess.TimeoutExpired:
-        logger.error("Python code execution timed out")
-        return "Error: Code execution timed out"
+        # Add safety measures and execution logic here
+        result = eval(code)  # Be careful with eval - you might want to use a safer execution method
+        logger.info(f"Python execution successful: {result}")
+        return str(result)
     except Exception as e:
-        logger.error(f"Unexpected error during Python code execution: {str(e)}")
-        return f"Error: {str(e)}"
+        logger.error(f"Error executing Python code: {str(e)}")
+        return f"Error executing Python code: {str(e)}"
 
 @tool
 def execute_cmd(command: str) -> str:
-    """
-    Execute a CMD command and return the output.
-
+    """Execute a system command and return the output.
+    
+    Use this tool when you need to run system commands. The command will be executed
+    in a shell and the output returned as a string.
+    
     Args:
-        command (str): The CMD command to execute. Use plain text ONLY.
-
+        command (str): Command to execute
+        
     Returns:
-        str: The output of the executed command or an error message if execution fails.
-    
-    Raises:
-        subprocess.SubprocessError: If the command execution fails
-        Exception: For any other execution errors
+        str: Command execution output or error message
     """
-    logger.info(f"Attempting to execute CMD command: {command}")
-    
+    logger.info(f"Executing command: {command}")
     try:
-        result = subprocess.run(
-            ["cmd", "/c", command],
-            capture_output=True,
-            text=True
-        )
-        if result.returncode == 0:
-            logger.info("CMD command execution successful")
-            return result.stdout
-        else:
-            error_msg = f"Error executing command '{command}': {result.stderr}"
-            logger.error(error_msg)
-            return error_msg
-            
+        # Add safety measures and execution logic here
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        output = result.stdout if result.stdout else result.stderr
+        logger.info(f"Command execution successful: {output}")
+        return output
     except Exception as e:
-        error_msg = f"Unexpected error executing command '{command}': {str(e)}"
-        logger.error(error_msg)
-        return error_msg
+        logger.error(f"Error executing command: {str(e)}")
+        return f"Error executing command: {str(e)}"
 

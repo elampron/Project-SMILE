@@ -1,19 +1,26 @@
-from datetime import datetime
 import logging
 from typing import Annotated, Sequence, TypedDict, Dict
+from typing_extensions import Literal
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessageChunk, ToolMessage, AIMessage
 from langgraph.prebuilt import create_react_agent
-from langchain.prompts import ChatPromptTemplate
+from langgraph.graph import StateGraph
+from langgraph.prebuilt import ToolNode
+from langchain.prompts import ChatPromptTemplate, PromptTemplate
+from langchain_core.runnables import RunnableConfig
 from app.configs.settings import settings
 from app.tools.public_tools import web_search_tool, file_tools
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from app.tools.custom_tools import execute_python, execute_cmd  # Importing both custom tools
-from app.utils.llm import llm_factory
+from app.utils.llm import llm_factory, prepare_conversation_data
 from app.models.agents import AgentState, User
 from app.services.neo4j import create_or_update_user, get_or_create_person_entity
 from app.services.neo4j import driver
+from app.agents.context import ContextManager
+from datetime import datetime
+import time
+
 
 
 
@@ -34,10 +41,230 @@ class Smile:
         # Initialize main user
         self._initialize_main_user()
         
-        # Rest of existing initialization...
+        # Initialize basic attributes
         self.chatbot_agent_llm = llm_factory(self.settings,"chatbot_agent")
+        self.chatbot_agent_prompt = PromptTemplate.from_template(self.settings.llm_config["chatbot_agent"]["prompt_template"])
         self.embeddings_client = llm_factory(self.settings,"embeddings")
         self.db_path = "..//checkpoints//smile.db"
+        self.graph = None
+        self.tools = None
+        self._checkpointer = None
+        self._initialized = False
+        self._saver = None
+        self.context_manager = ContextManager(driver)
+    def initialize(self):
+        """Synchronously initialize the agent graph and tools."""
+        try:
+            # Initialize checkpointer
+            if not self._initialized:
+                self._saver = SqliteSaver.from_conn_string(self.db_path)
+                self._checkpointer = self._saver.__enter__()
+                self._initialized = True
+            
+            # Initialize graph if needed
+            if self.graph is None:
+                self._initialize_graph()
+            
+            return self
+        except Exception as e:
+            self.logger.error(f"Error during initialization: {str(e)}", exc_info=True)
+            if self._saver:
+                try:
+                    self._saver.__exit__(type(e), e, e.__traceback__)
+                except Exception:
+                    pass
+            raise
+    
+    def call_model(self, state: AgentState, config: RunnableConfig) -> AgentState:
+        """
+        Call the model and handle the response based on the state and config.
+        
+        Args:
+            state (AgentState): Current state containing messages
+            config (RunnableConfig): Configuration for the model
+        
+        Returns:
+            AgentState: Updated state with model response
+        
+        Raises:
+            Exception: If all retry attempts fail
+        """
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                formatted_conversation = self.format_messages_for_model(state)
+                
+                # Filter out tool messages that don't have corresponding tool calls
+                filtered_messages = []
+                tool_call_ids = set()
+                
+                # Extract the last 3 messages from state and combine their content for better context
+                last_messages = state.messages[-3:]  # Get last 3 messages
+                user_input = "\n".join([msg.content for msg in last_messages])  # Join message contents with newlines
+                context = self.context_manager.get_formatted_context(user_input)
+                
+                prompt = ChatPromptTemplate.from_messages([
+                    ("system", self.settings.llm_config.get("chatbot_agent").get("prompt_template")),
+                    *formatted_conversation
+                ])
+
+                chain = prompt | self.chatbot_agent_llm.bind_tools(self.tools)
+
+                prompt_values = {
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "context": context
+                }
+
+                response = chain.invoke(prompt_values)
+                return {"messages": [response]}
+                
+            except Exception as e:
+                retry_count += 1
+                self.logger.warning(f"Attempt {retry_count} failed: {str(e)}")
+                
+                if retry_count >= max_retries:
+                    self.logger.error(f"All {max_retries} attempts failed. Last error: {str(e)}")
+                    raise
+                
+                # Add exponential backoff
+                wait_time = 2 ** retry_count
+                time.sleep(wait_time)
+    
+
+    def should_continue(self, state: AgentState) -> Literal["tools", "__end__"]:
+        messages = state.messages
+        last_message = messages[-1]
+        # If there is no function call, then we finish
+        if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+            return "__end__"
+        # Otherwise if there is, we continue
+        else:
+            return "tools"
+        
+    def cleanup(self):
+        """Cleanup resources."""
+        if self._saver and self._initialized:
+            try:
+                self._saver.__exit__(None, None, None)
+                self._initialized = False
+                self._checkpointer = None
+                self._saver = None
+            except Exception as e:
+                self.logger.error(f"Error during cleanup: {str(e)}")
+                raise
+
+    def _initialize_graph(self):
+        """Initialize the agent graph with tools and checkpointer."""
+        self.logger.info("Initializing agent graph")
+        
+        self.tools = [
+            web_search_tool,
+            *file_tools,
+            execute_python,
+            execute_cmd
+        ]
+          # Define a new graph
+        workflow = StateGraph(AgentState)
+        tool_node = ToolNode(self.tools)
+
+        # Define the two nodes we will cycle between
+        workflow.add_node("agent", self.call_model)
+        workflow.add_node("tools", tool_node)
+
+        # Set the entrypoint as `agent`
+        # This means that this node is the first one called
+        workflow.set_entry_point("agent")
+
+        # We now add a conditional edge
+        workflow.add_conditional_edges(
+            # First, we define the start node. We use `agent`.
+            # This means these are the edges taken after the `agent` node is called.
+            "agent",
+            # Next, we pass in the function that will determine which node is called next.
+            self.should_continue,
+        )
+
+        workflow.add_edge("tools", "agent")
+
+    # Finally, we compile it!
+    # This compiles it into a LangChain Runnable,
+        # meaning you can use it as you would any other runnable
+        self.graph=workflow.compile(
+            checkpointer=self._checkpointer,
+            interrupt_before=None,
+            interrupt_after=None,
+            debug=False,
+        )
+
+
+        
+        self.logger.info("Agent graph initialized successfully")
+
+    def get_conversation_history(self, num_messages=50, thread_id="MainThread"):
+        """Synchronously retrieve conversation history."""
+        try:
+            if not self._initialized or not self._checkpointer:
+                self.initialize()
+                
+            config = {"configurable": {"thread_id": thread_id, "checkpoint_id": self.settings.app_config["langchain_config"]["checkpoint_id"]}}
+            
+            checkpoint_tuple = self._checkpointer.get_tuple(config)
+            
+            if checkpoint_tuple is None or not hasattr(checkpoint_tuple, 'checkpoint'):
+                self.logger.warning(f"No valid checkpoint found for thread_id: {thread_id}")
+                return []
+
+            messages = checkpoint_tuple.checkpoint.get('channel_values', {}).get('messages', [])
+            
+            # Prepare the conversation history
+            conversation_history = []
+            for msg in messages[-num_messages:]:
+                # Extract message details based on type
+                if isinstance(msg, (HumanMessage, AIMessage)):
+                    message = {
+                        "role": "user" if isinstance(msg, HumanMessage) else "assistant",
+                        "content": msg.content,
+                        "timestamp": msg.additional_kwargs.get('timestamp', 
+                               msg.response_metadata.get('timestamp', 
+                               datetime.now().isoformat())),
+                        "message_id": msg.id
+                    }
+                    conversation_history.append(message)
+
+            self.logger.info(f"Retrieved {len(conversation_history)} messages from conversation history")
+            return conversation_history
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving conversation history: {str(e)}", exc_info=True)
+            self._initialized = False
+            raise
+
+    def stream(self, message: str, config: Dict):
+        """Synchronous stream method."""
+        try:
+            inputs = {
+                "messages": [("user", message)],
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            if not self._initialized or not self._checkpointer:
+                self.initialize()
+            if not config:
+                config = {"thread_id": "MainThread"}
+
+            for msg, metadata in self.graph.stream(
+                inputs, 
+                stream_mode="messages",
+                config=config
+            ):
+                if isinstance(msg, (AIMessageChunk, AIMessage)):
+                    if msg.content:
+                        yield msg.content
+                        
+        except Exception as e:
+            self.logger.error(f"Error during streaming: {str(e)}", exc_info=True)
+            raise
 
     def _initialize_main_user(self):
         """
@@ -86,86 +313,39 @@ class Smile:
             self.logger.error(f"Failed to initialize main user: {str(e)}")
             raise
 
-    def format_for_model(self, state: AgentState):
-        return self.prompt.invoke({"messages": state["messages"][-self.settings.llm_config.get("chatbot_agent").get("max_messages"):],"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
-    
-    
-    async def stream(self, message: str, config: Dict):
+    def format_messages_for_model(self, state: AgentState):
         """
-        Asynchronous stream method that yields response chunks from the agent.
-
+        Format the state for the model and return a properly formatted message.
+        
         Args:
-            message (str): The user's input message.
-            config (Dict): Configuration dictionary.
-
-        Yields:
-            str: Chunks of the agent's response.
-
-        Raises:
-            Exception: If an error occurs during streaming.
+            state (AgentState): Current state containing messages and other info
+        
+        Returns:
+            str: Formatted message for the model
         """
-        llm_config = self.settings.llm_config.get("chatbot_agent")
+        # Add logging
+        self.logger.debug(f"Formatting state for model: {state}")
+        
+        try:
+            # Get the last max_messages from the state
+            max_messages = self.settings.llm_config.get("chatbot_agent").get("max_messages", 10)
+            last_messages = state.messages[-max_messages:]
+            
+            formatted_messages = [
+                msg if not isinstance(msg, ToolMessage) else msg.__class__(
+                    content=str(msg.content)[:1000],
+                    tool_call_id=msg.tool_call_id,
+                    name=msg.name,
+                    id=msg.id
+                )
+                for msg in last_messages
+            ]
 
-        if not llm_config:
-            self.logger.error("Chatbot agent not found")
-            return
-
-        if not llm_config.get("prompt_template"):
-            self.logger.error(
-                "Chatbot agent prompt template not found", extra={"llm_config": llm_config}
-            )
-            return
-
-        # Combine public and custom tools
-        tools = [web_search_tool] + file_tools + [execute_python, execute_cmd]
-
-        # Define the prompt
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", llm_config["prompt_template"]),
-            ("placeholder", "{messages}"),
-            ("system", "Current date and time: {time}"),
-        ])
-
-        # Use AsyncSqliteSaver with 'async with'
-        async with AsyncSqliteSaver.from_conn_string(conn_string=self.db_path) as checkpointer:
-            graph = create_react_agent(
-                self.chatbot_agent_llm,
-                tools,
-                state_modifier=self.format_for_model,
-                checkpointer=checkpointer
-            )
-
-            inputs = {
-                "messages": [("user", message)],
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-
-            if not config:
-                config = {"thread_id": "MainThread"}
-
-            try:
-                # Asynchronously stream messages from the graph
-                async for msg, metadata in graph.astream(
-                    inputs, stream_mode="messages", config=config
-                ):
-                    # Check if the message is an AIMessage or AIMessageChunk
-                    if isinstance(msg, (AIMessageChunk, AIMessage)):
-                        # Yield the content as it comes
-                        if msg.content:
-                            self.logger.debug(f"Yielding chunk of size: {len(msg.content)} bytes")
-                            yield msg.content
-                    elif isinstance(msg, ToolMessage):
-                        # Handle ToolMessages if needed
-                        pass
-                    else:
-                        # Handle other message types if necessary
-                        pass
-                self.logger.info(f"Streaming completed for thread_id: {config['thread_id']}")
-
-            except Exception as e:
-                self.logger.error(f"Error during streaming: {str(e)}", exc_info=True)
-                raise e
+            return formatted_messages
+            
+        except Exception as e:
+            self.logger.error(f"Error in format_for_model: {str(e)}", exc_info=True)
+            raise
     
-   
     
 

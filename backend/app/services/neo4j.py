@@ -3,6 +3,7 @@
 import logging
 import json
 from datetime import datetime
+from typing import Optional, Dict, Any, List
 
 try:
     from neo4j import GraphDatabase
@@ -10,9 +11,14 @@ except ImportError:
     raise ImportError("Please install neo4j-driver: pip install neo4j")
 
 from app.configs.settings import settings
-from app.models.memory import PersonEntity, OrganizationEntity, Relationship, ConversationSummary,Preference
-from app.models.agents import User  
-# Initialize the logger
+from app.models.memory import (
+    PersonEntity, OrganizationEntity, Relationship, 
+    ConversationSummary, Preference
+)
+from app.models.agents import User
+from app.services.embeddings import EmbeddingsService
+
+# Initialize logger
 logger = logging.getLogger(__name__)
 
 # Initialize the driver
@@ -24,22 +30,28 @@ driver = GraphDatabase.driver(
     )
 )
 
+# Initialize embeddings service
+embeddings_service = EmbeddingsService(driver)
+
 def create_entity_node(tx, entity):
     """
-    Create or update an entity node in the Neo4j database.
-
+    Create or update an entity node in Neo4j with embedding.
+    
     Args:
-        tx: The Neo4j transaction.
-        entity: The entity object to be created or updated.
+        tx: Neo4j transaction object
+        entity: Entity object to store (PersonEntity or OrganizationEntity)
     """
-    # Import here to avoid circular imports
-    from app.models.memory import PersonEntity, OrganizationEntity
+    # Generate embedding if not provided
+    if entity.embedding is None:
+        # Create text representation for embedding
+        text_for_embedding = f"{entity.name} {entity.type} {entity.notes if entity.notes else ''}"
+        entity.embedding = embeddings_service.generate_embedding(text_for_embedding)
     
     labels = [entity.type]
     properties = entity.dict()
 
     # Convert UUID fields to strings
-    properties['id'] = str(properties['id'])  # Convert UUID to string
+    properties['id'] = str(properties['id'])
 
     # Ensure datetime fields are strings in ISO format
     properties['created_at'] = properties['created_at'].isoformat()
@@ -65,29 +77,29 @@ def create_entity_node(tx, entity):
     # Remaining properties to set or update
     on_match_set = {k: v for k, v in properties.items() if k not in unique_props and v is not None}
 
-    # Build the Cypher query for merging the entity
+    # Build the Cypher query
     merge_query = f"""
     MERGE (e:{':'.join(labels)} {{{', '.join([f'{k}: ${k}' for k in merge_properties.keys()])}}})
-    ON CREATE SET {', '.join([f'e.{k} = ${k}' for k in on_match_set.keys()])}
-    ON MATCH SET {', '.join([f'e.{k} = ${k}' for k in on_match_set.keys()])}
+    ON CREATE SET {', '.join([f'e.{k} = ${k}' for k in on_match_set.keys()])},
+                  e.embedding = $embedding
+    ON MATCH SET {', '.join([f'e.{k} = ${k}' for k in on_match_set.keys()])},
+                 e.embedding = $embedding
+    RETURN e.id as id
     """
 
     # Combine all parameters
-    parameters = {**merge_properties, **on_match_set}
+    parameters = {**merge_properties, **on_match_set, 'embedding': entity.embedding}
 
-    # Log the query and parameters for debugging
-    logger.debug(f"Executing query: {merge_query} with parameters: {parameters}")
- # Modify the query to return the node
-    merge_query += "\nRETURN e.id AS id"
-
-    # Run the query and get the result
-    result = tx.run(merge_query, **parameters)
-    record = result.single()
-    if record:
-        return record["id"]
-    else:
-        return None
-
+    try:
+        result = tx.run(merge_query, **parameters)
+        record = result.single()
+        if record:
+            return record["id"]
+        else:
+            return None
+    except Exception as e:
+        logger.error(f"Error creating entity node: {str(e)}")
+        raise
 
 def create_entity_relationship(tx, relationship):
     """
@@ -127,16 +139,31 @@ def create_entity_relationship(tx, relationship):
     # Execute the query
     tx.run(merge_query, **properties)
 
-
 def create_summary_node(tx, summary: ConversationSummary):
+    """
+    Create a summary node in Neo4j with embedding.
+    
+    Args:
+        tx: Neo4j transaction object
+        summary: ConversationSummary object to store
+    """
     properties = summary.model_dump()
-    properties['id'] = str(properties['id'])  # Convert UUID to string
+    properties['id'] = str(properties['id'])
     properties['created_at'] = properties['created_at'].isoformat()
+    
+    # Generate embedding if not provided
+    if summary.embedding is None:
+        # Create text representation for embedding
+        text_for_embedding = f"{summary.content} {' '.join(summary.topics)}"
+        summary.embedding = embeddings_service.generate_embedding(text_for_embedding)
+    
     # Remove nested objects for node properties
     del properties['action_items']
     del properties['participants']
     del properties['sentiments']
-    del properties['timeframe']
+    
+    # Add embedding to properties
+    properties['embedding'] = summary.embedding
     
     query = """
     CREATE (s:Summary {
@@ -146,7 +173,8 @@ def create_summary_node(tx, summary: ConversationSummary):
         location: $location,
         events: $events,
         created_at: datetime($created_at),
-        message_ids: $message_ids
+        message_ids: $message_ids,
+        embedding: $embedding
     })
     RETURN s
     """
@@ -195,6 +223,7 @@ def create_summary_relationships(tx, summary: ConversationSummary):
         tx.run(relationship_query, summary_id=str(summary.id), description=action_item.description)
 
 def fetch_existing_preference_types(tx):
+    """Get all existing preference types from Neo4j."""
     query = """
     MATCH (p:Preference)
     RETURN DISTINCT p.preference_type AS preference_type
@@ -205,7 +234,7 @@ def fetch_existing_preference_types(tx):
 
 def create_preference_node(tx, preference: Preference):
     """
-    Create a preference node in Neo4j.
+    Create a preference node in Neo4j with embedding.
     
     Args:
         tx: Neo4j transaction object
@@ -218,6 +247,12 @@ def create_preference_node(tx, preference: Preference):
     # Serialize complex details object to JSON string if it's a dict
     details = json.dumps(preference.details) if isinstance(preference.details, dict) else preference.details
     
+    # Generate embedding if not provided
+    if preference.embedding is None:
+        # Create text representation for embedding
+        text_for_embedding = f"{preference.preference_type} {json.dumps(preference.details)}"
+        preference.embedding = embeddings_service.generate_embedding(text_for_embedding)
+    
     query = """
     MATCH (person:Person {id: $person_id})
     MERGE (pref:Preference {
@@ -226,7 +261,8 @@ def create_preference_node(tx, preference: Preference):
     })
     ON CREATE SET pref.id = $id,
                   pref.importance = $importance,
-                  pref.created_at = datetime($created_at)
+                  pref.created_at = datetime($created_at),
+                  pref.embedding = $embedding
     CREATE (person)-[:HAS_PREFERENCE]->(pref)
     """
     
@@ -236,8 +272,9 @@ def create_preference_node(tx, preference: Preference):
                id=str(preference.id),
                preference_type=preference.preference_type,
                importance=preference.importance,
-               details=details,  # Now using the serialized details
-               created_at=preference.created_at.isoformat()
+               details=details,
+               created_at=preference.created_at.isoformat(),
+               embedding=preference.embedding
                )
         logger.debug(f"Created preference node for person {preference.person_id}")
     except Exception as e:
@@ -313,7 +350,7 @@ def create_or_update_user(tx, user: User) -> User:
         MERGE (u)-[r:IS_PERSON]->(p)
         """
         
-    query += "RETURN u"
+    query += "RETURN u {.*,u.embedding=null}"
     
     try:
         result = tx.run(
@@ -379,3 +416,8 @@ def get_or_create_person_entity(tx, person_details: dict) -> PersonEntity:
     except Exception as e:
         logger.error(f"Error creating/updating person entity: {str(e)}")
         raise
+
+# Create vector indexes during application startup
+def create_indexes():
+    """Create necessary indexes in Neo4j."""
+    embeddings_service.create_vector_indexes()

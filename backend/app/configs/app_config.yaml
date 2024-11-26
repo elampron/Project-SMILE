@@ -5,7 +5,9 @@ project_info:
   project_description: "Project-SMILE"
 
 # Debug configuration
-debug: false
+debug: "false"
+
+checkpoint_path: "../checkpoints/smile.db"
 
 # Log configuration
 log_config:
@@ -14,9 +16,11 @@ log_config:
 
 # Langchain configuration
 langchain_config:
-  tracing_v2: true
+  tracing_v2: "true"
   endpoint: "https://api.smith.langchain.com"
   project: "project-smile"
+  thread_id: "MainThread"
+  checkpoint_id: null # "1efaad66-193e-6e38-80e1-932ddc4b99a4" #"1efaaaad-23d0-6f80-80ae-5882b5747cd7"
 
 # Postgres configuration
 postgres_config:

@@ -11,9 +11,9 @@ import asyncio
 # Load the environment variables from the .env file
 load_dotenv()
 
-# os.environ["LANGCHAIN_TRACING_V2"] = "true"
-# os.environ["LANGCHAIN_ENDPOINT"] = settings.app_config["langchain_config"]["endpoint"]
-# os.environ["LANGCHAIN_PROJECT"] = settings.app_config["langchain_config"]["project"]
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_ENDPOINT"] = settings.app_config["langchain_config"]["endpoint"]
+os.environ["LANGCHAIN_PROJECT"] = settings.app_config["langchain_config"]["project"]
 
 # Logging setup
 logging.basicConfig(
@@ -48,10 +48,10 @@ console.print(Markdown(welcome_text))
 
 smile = Smile()
 
-async def main():
+def main():
     # Main loop
     while True:
-        user_input = Prompt.ask("Enter a command:")
+        user_input = Prompt.ask("You: ")
         if user_input.strip() == "0":
             console.print("Goodbye!")
             break
@@ -66,12 +66,12 @@ async def main():
 
             # Stream the response as it comes
             response_content = ""
-            async for chunk in smile.stream(user_input, config={"thread_id": "MainThread"}):
+            for chunk in smile.stream(user_input, config={"thread_id": "MainThread", "checkpoint_id": settings.app_config["langchain_config"]["checkpoint_id"]}):
                 response_content += chunk
                 console.print(chunk, end="")
             console.print("\n")
 
 # Run the async main function
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
 

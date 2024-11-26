@@ -1,17 +1,18 @@
+import asyncio
 from datetime import datetime
 import json
 import logging
 import os
 from uuid import UUID, uuid4
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from dotenv import load_dotenv
-from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, AIMessage
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from app.configs.settings import settings
 from app.utils.examples import get_summary_examples, get_entity_extraction_examples, get_preference_extraction_examples
-from app.utils.llm import llm_factory, estimate_tokens, prepare_conversation_data
-from app.models.agents import AgentState, SmileMessage, ExtractorType
+from app.utils.llm import llm_factory, prepare_conversation_data
+from app.models.agents import AgentState, ExtractorType
 from app.models.memory import(
      EntityExtractorResponse, 
      PersonEntity, 
@@ -28,12 +29,14 @@ from app.services.neo4j import(
      driver,
      create_preference_node,
      fetch_existing_preference_types,
-     get_person_id_by_name
+     get_person_id_by_name,
+     create_summary_relationships
 )
 from langchain.prompts import PromptTemplate
 from pydantic import ValidationError
 from langchain_core.messages.modifier import RemoveMessage
 import uuid
+import tiktoken
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +81,7 @@ class SmileMemory:
         """
         Process a batch of SmileMessage instances, extract entities and relationships,
         and store them in the Neo4j database.
-
+        
         Args:
             messages (List[SmileMessage]): List of SmileMessage instances to process.
             state (AgentState): The agent's current state.
@@ -96,13 +99,13 @@ class SmileMemory:
             try:
                 # Convert messages to conversation text
                 conversation_text = prepare_conversation_data(messages)
-
+                
                 # Create a dictionary with the required variables
                 prompt_variables = {
                     "conversation_text": conversation_text,
                     "examples": examples
                 }
-
+                
                 # Invoke the chain with the variables dictionary
                 self.logger.debug(f"Invoking LLM with prompt variables: {prompt_variables}")
                 response = self.entity_extractor_chain.invoke(prompt_variables)
@@ -212,14 +215,10 @@ class SmileMemory:
             self.logger.error(f"An error occurred while writing to Neo4j: {e}")
             raise
 
-
         return response
 
-
-        
-
     def execute_graph(self, state: AgentState, config: dict):
-
+        """Execute the memory graph with async support."""
         self.initialise_entity_extractor()
         self.initialise_preference_extractor()
         self.initialise_conversation_summarizer()
@@ -231,8 +230,6 @@ class SmileMemory:
         
         with SqliteSaver.from_conn_string(conn_string=self.checkpoint_path) as checkpointer:
             self.graph = graph_builder.compile(checkpointer=checkpointer)   
-
-        
             response = self.graph.invoke(state, config=config)
         
         return response
@@ -303,102 +300,198 @@ class SmileMemory:
         # Return the list of extracted preferences
         return preferences
 
-    def summarize_and_replace_batch(self, batch: List[BaseMessage]):
-        """
-        Summarize the batch of messages, remove original messages using RemoveMessage,
-        and add the summary message.
-
-        Args:
-            batch (List[BaseMessage]): The batch of messages to summarize.
-            state (AgentState): The current agent state.
-
-        Returns:
-            BaseMessage: The summary message generated.
-        """
-        # Prepare the conversation data for the batch
+    def summarize_and_replace_batch(self, batch: List[BaseMessage]) -> ConversationSummary:
+        """Summarize the batch of messages and handle timestamps separately."""
+        
+        # Get conversation data and create prompt
         conversation_data = prepare_conversation_data(batch)
-        conversation_text = json.dumps(conversation_data, indent=2)
         examples = get_summary_examples()
-
-        # Create the summarization prompt
-        prompt_variables ={
-            "conversation_text": conversation_text,
+        prompt_variables = {
+            "conversation_text": json.dumps(conversation_data, indent=2),
             "examples": examples
         }
 
-        # Invoke the summarizer LLM
+        # Get summary from LLM
         summary_response = self.conversation_summarizer_chain.invoke(prompt_variables)
-
-        # Create a summary message
-        conversation_summary = ConversationSummary(**summary_response.model_dump())
         
+        # Create summary with timestamps from messages
+        try:
+            # Find earliest and latest message timestamps
+            timestamps = [msg.additional_kwargs.get('timestamp') for msg in batch if msg.additional_kwargs.get('timestamp')]
+            start_time = min(timestamps) if timestamps else datetime.utcnow()
+            end_time = max(timestamps) if timestamps else datetime.utcnow()
+            
+            # Convert response to dict and remove time fields that we'll set manually
+            summary_dict = summary_response.model_dump()
+            summary_dict.pop('start_time', None)
+            summary_dict.pop('end_time', None)
+            
+            conversation_summary = ConversationSummary(
+                **summary_dict,
+                start_time=start_time,
+                end_time=end_time
+            )
+        except ValidationError as e:
+            self.logger.error(f"Validation error creating ConversationSummary: {e}")
+            raise
 
-        summary_message = self.create_summary_message(conversation_summary)
-
-
-        for msg in batch:
-            RemoveMessage(id=msg.id)
+        # Handle message deletion and storage
+        deleted_messages = [RemoveMessage(id=msg.id) for msg in batch]
         
+        try:
+            with driver.session() as session:
+                session.execute_write(create_summary_node, conversation_summary)
+                session.execute_write(create_summary_relationships, conversation_summary)
+            logger.info(f"Stored summary in Neo4j: {conversation_summary.id}")
+        except Exception as e:
+            logger.error(f"Error storing summary in Neo4j: {str(e)}")
+            raise
 
-        self.logger.info(f"Replaced batch of {len(batch)} messages with summary message.")
+        return conversation_summary, deleted_messages
 
-        # Return the summary message
-        return summary_message
+    def count_tokens_in_messages(self, messages: List[BaseMessage]) -> int:
+        """
+        Count the total number of tokens in a list of messages.
+        
+        Args:
+            messages (List[BaseMessage]): List of messages to count tokens for
+            
+        Returns:
+            int: Total number of tokens
+            
+        Logging:
+            - Debug logs for token counts
+        """
+        enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
+        total_tokens = 0
+        
+        for msg in messages:
+            tokens = len(enc.encode(msg.content))
+            total_tokens += tokens
+            self.logger.debug(f"Message tokens: {tokens}")
+        
+        return total_tokens
+
+    def create_token_based_batch(
+        self, 
+        messages: List[BaseMessage], 
+        max_tokens: int = 5000,
+        max_messages: int = 25
+    ) -> Tuple[List[BaseMessage], List[BaseMessage]]:
+        """
+        Create a batch of messages that fits within both token and message count limits.
+        
+        Args:
+            messages (List[BaseMessage]): Messages to batch
+            max_tokens (int): Maximum tokens per batch
+            max_messages (int): Maximum number of messages per batch
+            
+        Returns:
+            Tuple[List[BaseMessage], List[BaseMessage]]: (current_batch, remaining_messages)
+            
+        Logging:
+            - Info for batch creation
+            - Debug for token counts and message counts
+            - Warning for large messages that need splitting
+        """
+        current_batch = []
+        current_tokens = 0
+        
+        for i, msg in enumerate(messages):
+            # Check if we've hit the max messages limit
+            if len(current_batch) >= max_messages:
+                self.logger.info(f"Reached max messages limit ({max_messages})")
+                return current_batch, messages[i:]
+            
+            msg_tokens = self.count_tokens_in_messages([msg])
+            
+            # Handle messages that exceed max_tokens
+            if msg_tokens > max_tokens:
+                self.logger.warning(f"Message exceeds token limit ({msg_tokens} > {max_tokens}). Splitting message.")
+                
+                enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
+                tokens = enc.encode(msg.content)
+                tokens_to_keep = max_tokens - 100  # Leave buffer for safety
+                truncated_tokens = tokens[:tokens_to_keep]
+                truncated_content = enc.decode(truncated_tokens)
+                truncated_message = HumanMessage(content=truncated_content)
+                
+                # Add to current batch if we have space and haven't hit message limit
+                if current_tokens < max_tokens and len(current_batch) < max_messages:
+                    current_batch.append(truncated_message)
+                    current_tokens += len(truncated_tokens)
+                    return current_batch, messages[i+1:]
+                else:
+                    return current_batch, [truncated_message] + messages[i+1:]
+                continue
+                
+            # Normal case - check both token and message limits
+            if (current_tokens + msg_tokens > max_tokens or 
+                len(current_batch) >= max_messages) and current_batch:
+                self.logger.info(f"Created batch with {current_tokens} tokens and {len(current_batch)} messages")
+                return current_batch, messages[i:]
+            
+            current_batch.append(msg)
+            current_tokens += msg_tokens
+        
+        self.logger.info(f"Created final batch with {current_tokens} tokens and {len(current_batch)} messages")
+        return current_batch, []
 
     def extractor(self, state: AgentState):
         """
-        Process messages in batches using extractors and summarizer.
-
+        Process messages in token-based batches using extractors and summarizer.
+        
         Args:
-            state (AgentState): The current agent state containing messages.
-
+            state (AgentState): The current agent state containing messages
+            
         Returns:
-            AgentState: Updated state after processing messages.
+            AgentState: Updated state after processing messages
+            
+        Logging:
+            - Info for batch processing
+            - Debug for extraction results
         """
-        # Define your batch size
-        batch_size = 50
-
-        # Get the list of messages
+        MAX_TOKENS = 50000
         messages = state.messages
-
-
-        # Get the total number of messages to process
-        total_messages = len(messages)
-
-        # If the message count is lower than the batch size, exit the flow
-        if total_messages < batch_size:
-            self.logger.info("Not enough messages to process a batch.")
-            return state
-
-        # Initialize lists to collect outputs
+        remaining_messages = messages
         all_entities = []
         all_summaries = []
-
-        # Process messages in batches
-        num_batches = total_messages // batch_size
-        for batch_num in range(num_batches):
-            start_index = batch_num * batch_size
-            end_index = start_index + batch_size
-            batch = messages[start_index:end_index]
-
+        
+        self.logger.info(f"Starting to process {len(messages)} messages")
+        
+        while remaining_messages:
+            # Create batch based on token count
+            current_batch, remaining_messages = self.create_token_based_batch(
+                remaining_messages, 
+                MAX_TOKENS
+            )
+            
+            if not current_batch:
+                break
+            
+            self.logger.info(f"Processing batch of {len(current_batch)} messages")
+            
             # Process the batch through extractors
-            entities_response = self.process_entity_extraction_batch(batch)
+            entities_response = self.process_entity_extraction_batch(current_batch)
             all_entities.append(entities_response)
             self.logger.debug(f"Extracted entities: {entities_response}")
-            # Process preference extraction
-            preferences = self.process_preference_extraction_batch(batch)
-            self.logger.debug(f"Extracted preferences: {preferences}")
-
             
+            # Process preference extraction
+            preferences = self.process_preference_extraction_batch(current_batch)
+            self.logger.debug(f"Extracted preferences: {preferences}")
+            
+            # Only summarize if we have more remaining messages than max_messages setting
+            if len(remaining_messages) >= self.settings.llm_config["chatbot_agent"]["max_messages"]:
+                # Summarize the batch and replace messages
+                summary, deleted_messages = self.summarize_and_replace_batch(current_batch)
+                state.messages.extend(deleted_messages)
+                all_summaries.append(summary)
+                self.logger.debug(f"Batch summarized and replaced")
+            else:
+                self.logger.debug(f"Skipping summarization since only {len(remaining_messages)} messages remain")
 
-            # Summarize the batch and replace messages
-            summary_message = self.summarize_and_replace_batch(batch)
-
-            all_summaries.append(summary_message)
-            self.logger.debug(f"Generated summary message: {summary_message.content}")
-
-        state.messages.extend(all_summaries)
-
+        
+        state.summaries.extend(all_summaries)
         return state
 
     
@@ -429,21 +522,39 @@ class SmileMemory:
 
 
 if __name__ == "__main__":
-    # Initialize the memory agent
-    memory_agent = SmileMemory()
-
-    # Create a test AgentState with some messages
-    from langchain_core.messages import HumanMessage
-
-    message=HumanMessage(content="Hello, how are you?")
-    state = {"messages": []}
     
-    message.pretty_print()
+    def main():
+        """
+        Main async function to initialize and run the memory agent.
+        
+        Logging:
+            - Info for start/completion
+            - Error for any exceptions
+        """
+        logger.info("Initializing memory agent")
+        try:
+            # Initialize the memory agent
+            memory_agent = SmileMemory()
 
+            # Create a test AgentState with some messages
+            state = {"messages": []}
+            
+            config = {
+                "configurable": {
+                    "thread_id": "MainThread", 
+                    "checkpoint_id": settings.app_config["langchain_config"]["checkpoint_id"]
+                }
+            }
+            
+            # Await the async execute_graph call
+            response = memory_agent.execute_graph(state=state, config=config)
+            logger.info("Memory agent execution completed successfully")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error in main execution: {e}")
+            raise
 
-    config = {"configurable": {"thread_id": "123",
-                               "checkpoint_id": "1efa61d0-53e9-67df-81d2-1efddde93b3c"
-                               }}
-    response = memory_agent.execute_graph(state=state, config=config)
+    main()
 
 

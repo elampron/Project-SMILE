@@ -48,7 +48,7 @@
           {
             "name": "Buddy",
             "type": "Person",
-            "category": "pet",
+            "category": "Pet",
             "nickname": null,
             "birth_date": null,
             "email": "",
@@ -71,7 +71,7 @@
           {
             "from_entity_name": "Human",
             "to_entity_name": "Buddy",
-            "type": "owns_pet",
+            "type": "Owns Pet",
             "since": null,
             "until": null,
             "notes": ""
@@ -79,7 +79,7 @@
           {
             "from_entity_name": "Human",
             "to_entity_name": "Happy Tails Shelter",
-            "type": "works_at",
+            "type": "Works At",
             "since": null,
             "until": null,
             "notes": ""

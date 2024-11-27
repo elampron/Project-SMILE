@@ -66,15 +66,12 @@
           "overall_sentiment": "Positive",
           "emotions": ["Excitement", "Joy"]
         },
-        "timeframe": {
-          "start_date": "2023-10-08T00:00:00",
-          "end_date": "2023-10-08T23:59:59"
-        },
         "location": null,
         "events": ["Emily's Birthday Party"],
-        "tool_interactions": [],
+        "message_ids": ["msg-1", "msg-2", "msg-3", "msg-4", "msg-5"],
         "created_at": "2023-10-01T10:15:50",
-        "message_ids": ["msg-1", "msg-2", "msg-3", "msg-4", "msg-5"]
+        "start_time": "2023-10-08T00:00:00",
+        "end_time": "2023-10-08T23:59:59"
       }
     },
     {
@@ -131,15 +128,12 @@
           "overall_sentiment": "Negative",
           "emotions": ["Frustration", "Disappointment"]
         },
-        "timeframe": {
-          "start_date": "2023-10-02T00:00:00",
-          "end_date": null
-        },
         "location": null,
         "events": ["Project Proposal Rejection"],
-        "tool_interactions": [],
+        "message_ids": ["msg-6", "msg-7", "msg-8", "msg-9", "msg-10"],
         "created_at": "2023-10-02T18:45:50",
-        "message_ids": ["msg-6", "msg-7", "msg-8", "msg-9", "msg-10"]
+        "start_time": "2023-10-02T00:00:00",
+        "end_time": null
       }
     },
     {
@@ -194,15 +188,12 @@
           "overall_sentiment": "Positive",
           "emotions": ["Satisfaction"]
         },
-        "timeframe": {
-          "start_date": "2023-10-03T19:00:00",
-          "end_date": null
-        },
         "location": "Luigi's Italian Bistro",
         "events": ["Dinner Reservation"],
-        "tool_interactions": ["Reservation Service"],
+        "message_ids": ["msg-11", "msg-12", "msg-13", "msg-14", "msg-15"],
         "created_at": "2023-10-03T12:00:40",
-        "message_ids": ["msg-11", "msg-12", "msg-13", "msg-14", "msg-15"]
+        "start_time": "2023-10-03T19:00:00",
+        "end_time": null
       }
     },
     {
@@ -259,14 +250,12 @@
           "overall_sentiment": "Neutral",
           "emotions": ["Uncertainty", "Hopefulness"]
         },
-        "timeframe": {
-          "start_date": "2023-11-01T00:00:00",
-          "end_date": "2023-11-30T23:59:59"
-        },
         "location": null,
         "events": ["Upcoming Vacation"],
-        "tool_interactions": [],
-        "created_at": "2023-10-04T09:30:50"
+        "message_ids": ["msg-16", "msg-17", "msg-18", "msg-19", "msg-20"],
+        "created_at": "2023-10-04T09:30:50",
+        "start_time": "2023-11-01T00:00:00",
+        "end_time": "2023-11-30T23:59:59"
       }
     },
     {
@@ -327,14 +316,12 @@
           "overall_sentiment": "Concerned",
           "emotions": ["Worry", "Relief"]
         },
-        "timeframe": {
-          "start_date": "2023-10-06T10:00:00",
-          "end_date": null
-        },
         "location": "Dr. Smith's Clinic",
         "events": ["Medical Appointment"],
-        "tool_interactions": ["Appointment Scheduler"],
-        "created_at": "2023-10-05T14:20:50"
+        "message_ids": ["msg-21", "msg-22", "msg-23", "msg-24", "msg-25", "msg-26"],
+        "created_at": "2023-10-05T14:20:50",
+        "start_time": "2023-10-06T10:00:00",
+        "end_time": null
       }
     }
   ]

@@ -88,7 +88,7 @@ preference_extractor_agent:
     temperature: 0.0 # Temperature
     streaming: false
   prompt_template: |
-    Given the conversation below, extract any preferences expressed by the participants.
+    Given the conversation below, extract preferences expressed by the participants. Preferences are things that the user likes or dislikes, or things that the user wants or needs. It needs to be with a clear value.
 
     Conversation:
     {conversation_text}
@@ -101,15 +101,60 @@ preference_extractor_agent:
     For each preference, provide:
     - person_name: The name of the person the preference is for. When the preference is for the user, use "Eric Lampron". When the preference is for someone else, use the actual name. whne it refers to the assistant, use Smiles
     - preference_type: The type of preference (can be new or from existing types).
-    - importance: An integer from 1 to 5 indicating the importance. 5 should only be used if the preference is very important. Those level 5 preferences will always appear in your context,
+    - importance: An integer from 1 to 5 indicating the importance. 5 should only be used if the preference is very important.NEVER USE 5 Unless the user specifically says it is very important. Don't Infer a 5
     - details: A structured JSON with the preference details. Store the information about the preference the same way you would like to retrieve it later. Because this is for your consomption only.
 
-    
+cognitive_memory_extractor_agent:
+  name: "cognitive_memory_extractor_agent"
+  description: "Cognitive Memory Extractor Agent"
+  provider: "openai"
+  params:
+    model: "gpt-4o-mini"
+    temperature: 0.0
+    streaming: false
+  prompt_template: |
+    You are a cognitive memory extraction system. Your task is to analyze conversations and extract structured memories that will be valuable for future interactions. Each memory should capture discrete, meaningful information about the user's world, preferences, relationships, and activities.
+
+    Given the conversation, extract cognitive memories following these rules:
+    1. Each memory should be atomic (one clear fact/piece of information)
+    2. Use appropriate confidence levels based on how directly the information is stated
+    3. Include structured_data when information can be formalized
+    4. Set meaningful importance scores (0.0-1.0) based on future relevance
+    5. Always reference "Eric Lampron" for the user and "Smiles" for the assistant
+    6. Categorize memories with relevant cognitive aspects (FACTUAL, TEMPORAL, etc.)
+
+    Current Memory Type Index:
+    ```json
+    {existing_types}
+    ```
+
+    {examples}
+
+    Now, please analyze the following conversation and extract cognitive memories:
+
+    Conversation Data:
+    ```json
+    {conversation_text}
+    ```
+
+    Current time: {current_time}
+
+    Extract memories following the same structure as the examples, making sure to include:
+    - Appropriate memory types and sub-types
+    - Semantic attributes (keywords, categories, cognitive aspects)
+    - Temporal context when relevant
+    - Structured data when applicable
+    - Proper confidence levels and validation status
+    - Source attribution
+
+    Each memory should be useful for future interactions and help build a rich understanding of the user's world.
+
+    Remember that these memories will be used to enhance future interactions, so focus on information that would be valuable for building context and understanding the user's world.
 
 embeddings:
   name: "embeddings"
   description: "Embeddings"
-  provider: "openai" # OpenAI, anthropic
+  provider: "openai"
   params:
-    model: "text-embedding-3-large" # OpenAI model, anthropic model
+    model: "text-embedding-ada-002"
 

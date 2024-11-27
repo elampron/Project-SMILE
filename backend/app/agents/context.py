@@ -9,10 +9,15 @@ summaries) and format them in a way that's optimal for LLM consumption.
 
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
+from uuid import UUID
 from neo4j import GraphDatabase, Session
+from app.services.neo4j import get_similar_memories
 
-from app.models.memory import Preference, PersonEntity, OrganizationEntity
+from app.models.memory import (
+    Preference, PersonEntity, OrganizationEntity, 
+    ConversationSummary, CognitiveMemory
+)
 from app.configs.settings import settings
 
 # Initialize logger
@@ -61,9 +66,9 @@ class ContextManager:
             important_preferences = self._get_important_preferences()
             relevant_preferences = self._get_relevant_preferences(user_input)
             relevant_entities = self._get_relevant_entities(user_input)
-            important_facts = self._get_important_facts()
-            relevant_facts = self._get_relevant_facts(user_input)
             relevant_summaries = self._get_relevant_summaries(user_input)
+            relevant_memories = self._get_relevant_memories(user_input)
+            recent_summaries = self._get_recent_summaries()
             
             # Format the context
             context_parts = []
@@ -79,14 +84,15 @@ class ContextManager:
             if relevant_entities:
                 context_parts.append("\nRELEVANT ENTITIES:")
                 context_parts.extend(self._format_entities(relevant_entities))
+
             
-            if important_facts:
-                context_parts.append("\nIMPORTANT FACTS:")
-                context_parts.extend(self._format_facts(important_facts))
+            if relevant_memories:
+                context_parts.append("\nRELEVANT MEMORIES:")
+                context_parts.extend(relevant_memories)
             
-            if relevant_facts:
-                context_parts.append("\nRELEVANT FACTS:")
-                context_parts.extend(self._format_facts(relevant_facts))
+            if recent_summaries:
+                context_parts.append("\nRECENT CONVERSATION SUMMARIES:")
+                context_parts.extend(self._format_summaries(recent_summaries))
             
             if relevant_summaries:
                 context_parts.append("\nRELEVANT SUMMARIES:")
@@ -132,17 +138,74 @@ class ContextManager:
         # TODO: Implement once fact extraction is added
         return []
     
-    def _get_relevant_summaries(self, user_input: str) -> List[Dict]:
-        """Get all summaries from Neo4j."""
+    def _get_relevant_memories(self, user_input: str) -> List[CognitiveMemory]:
+        """
+        Get cognitive memories relevant to the user's input using semantic search.
+        
+        Args:
+            user_input: The user's current input to find relevant memories for
+            
+        Returns:
+            List[CognitiveMemory]: List of relevant cognitive memories
+        """
+        try:
+            with self.driver.session() as session:
+                # Use execute_read for read-only operations
+                return session.execute_read(
+                    lambda tx: get_similar_memories(tx, text=user_input)
+                )
+        except Exception as e:
+            logger.error(f"Error getting relevant memories: {str(e)}")
+            # Fallback to getting recent important memories if semantic search fails
+            query = """
+            MATCH (m:CognitiveMemory)
+            WHERE m.importance >= 3
+            RETURN m
+            ORDER BY m.created_at DESC
+            LIMIT 5
+            """
+            with self.driver.session() as session:
+                result = session.run(query)
+                return [self._neo4j_to_cognitive_memory(record["m"]) for record in result]
+    
+    def _get_recent_summaries(self) -> List[ConversationSummary]:
+        """
+        Get the most recent conversation summaries.
+        
+        Returns:
+            List[ConversationSummary]: List of recent conversation summaries
+        """
         query = """
-        MATCH (s:Summary)
+        MATCH (s:ConversationSummary)
+        WHERE datetime() - s.created_at <= duration('P1D')  // Within last 24 hours
+        RETURN s
+        ORDER BY s.created_at DESC
+        LIMIT 3
+        """
+        with self.driver.session() as session:
+            result = session.run(query)
+            return [self._neo4j_to_conversation_summary(record["s"]) for record in result]
+    
+    def _get_relevant_summaries(self, user_input: str) -> List[ConversationSummary]:
+        """
+        Get summaries relevant to the user's input using semantic search.
+        
+        Args:
+            user_input: The user's current input to find relevant summaries for
+            
+        Returns:
+            List[ConversationSummary]: List of relevant conversation summaries
+        """
+        # TODO: Implement semantic search for summaries
+        query = """
+        MATCH (s:ConversationSummary)
         RETURN s
         ORDER BY s.created_at DESC
         LIMIT 5
         """
         with self.driver.session() as session:
             result = session.run(query)
-            return [dict(record["s"]) for record in result]
+            return [self._neo4j_to_conversation_summary(record["s"]) for record in result]
     
     def _format_preferences(self, preferences: List[Preference]) -> List[str]:
         """Format preferences into human-readable strings."""
@@ -163,9 +226,45 @@ class ContextManager:
         """Format facts into human-readable strings."""
         return [f"- {fact['content']}" for fact in facts]
     
-    def _format_summaries(self, summaries: List[Dict]) -> List[str]:
-        """Format summaries into human-readable strings."""
-        return [f"- {summary['content']}" for summary in summaries]
+    def _format_memories(self, memories: List[CognitiveMemory]) -> List[str]:
+        """
+        Format cognitive memories into human-readable strings.
+        
+        Args:
+            memories: List of CognitiveMemory objects to format
+            
+        Returns:
+            List[str]: Formatted memory strings
+        """
+        formatted = []
+        for memory in memories:
+            formatted.append(
+                f"- {memory.content} "
+                f"(Source: {memory.source}, "
+                f"Importance: {memory.importance}, "
+                f"Created: {memory.created_at.strftime('%Y-%m-%d %H:%M')})"
+            )
+        return formatted
+    
+    def _format_summaries(self, summaries: List[ConversationSummary]) -> List[str]:
+        """
+        Format conversation summaries into human-readable strings.
+        
+        Args:
+            summaries: List of ConversationSummary objects to format
+            
+        Returns:
+            List[str]: Formatted summary strings
+        """
+        formatted = []
+        for summary in summaries:
+            topics_str = ", ".join(summary.topics) if summary.topics else "No topics"
+            formatted.append(
+                f"- {summary.content}\n"
+                f"  Topics: {topics_str}\n"
+                f"  Time: {summary.created_at.strftime('%Y-%m-%d %H:%M')}"
+            )
+        return formatted
     
     def _neo4j_to_preference(self, neo4j_node: Any) -> Preference:
         """
@@ -219,4 +318,86 @@ class ContextManager:
             )
         except Exception as e:
             logger.error(f"Error converting Neo4j node to Preference: {str(e)}")
-            raise 
+            raise
+            
+    def _neo4j_to_cognitive_memory(self, neo4j_node: Any) -> CognitiveMemory:
+        """
+        Convert a Neo4j node to a CognitiveMemory object.
+        
+        Args:
+            neo4j_node: Raw Neo4j node data
+            
+        Returns:
+            CognitiveMemory: Properly formatted memory object
+        """
+        try:
+            logger.debug(f"Converting Neo4j node to CognitiveMemory: {neo4j_node}")
+            node_dict = dict(neo4j_node)
+            
+            # Convert datetime objects
+            created_at = node_dict.get('created_at')
+            if hasattr(created_at, 'to_native'):
+                created_at = created_at.to_native()
+            else:
+                created_at = datetime.utcnow()
+                
+            return CognitiveMemory(
+                id=node_dict.get('id'),
+                content=node_dict.get('content'),
+                source=node_dict.get('source'),
+                importance=node_dict.get('importance', 1),
+                context=node_dict.get('context', {}),
+                created_at=created_at,
+                embedding=node_dict.get('embedding')
+            )
+        except Exception as e:
+            logger.error(f"Error converting Neo4j node to CognitiveMemory: {str(e)}")
+            raise
+            
+    def _neo4j_to_conversation_summary(self, neo4j_node: Any) -> ConversationSummary:
+        """
+        Convert a Neo4j node to a ConversationSummary object.
+        
+        Args:
+            neo4j_node: Raw Neo4j node data
+            
+        Returns:
+            ConversationSummary: Properly formatted summary object
+        """
+        try:
+            logger.debug(f"Converting Neo4j node to ConversationSummary: {neo4j_node}")
+            node_dict = dict(neo4j_node)
+            
+            # Convert datetime objects
+            created_at = node_dict.get('created_at')
+            if hasattr(created_at, 'to_native'):
+                created_at = created_at.to_native()
+            else:
+                created_at = datetime.utcnow()
+                
+            start_time = node_dict.get('start_time')
+            if hasattr(start_time, 'to_native'):
+                start_time = start_time.to_native()
+                
+            end_time = node_dict.get('end_time')
+            if hasattr(end_time, 'to_native'):
+                end_time = end_time.to_native()
+                
+            return ConversationSummary(
+                id=node_dict.get('id'),
+                content=node_dict.get('content'),
+                topics=node_dict.get('topics', []),
+                action_items=node_dict.get('action_items', []),
+                participants=node_dict.get('participants', []),
+                sentiments=node_dict.get('sentiments', {}),
+                location=node_dict.get('location'),
+                events=node_dict.get('events', []),
+                message_ids=node_dict.get('message_ids', []),
+                created_at=created_at,
+                start_time=start_time,
+                end_time=end_time,
+                embedding=node_dict.get('embedding')
+            )
+        except Exception as e:
+            logger.error(f"Error converting Neo4j node to ConversationSummary: {str(e)}")
+            raise

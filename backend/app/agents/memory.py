@@ -10,27 +10,37 @@ from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, AIMe
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from app.configs.settings import settings
-from app.utils.examples import get_summary_examples, get_entity_extraction_examples, get_preference_extraction_examples
+from app.utils.examples import get_summary_examples, get_entity_extraction_examples, get_preference_extraction_examples,get_cognitive_memory_examples
 from app.utils.llm import llm_factory, prepare_conversation_data
 from app.models.agents import AgentState, ExtractorType
+from app.services.embeddings import EmbeddingsService
 from app.models.memory import(
-     EntityExtractorResponse, 
-     PersonEntity, 
-     OrganizationEntity, 
-     Relationship, 
-     ConversationSummary,
-     PreferenceExtractorResponse,
-     Preference
+    EntityExtractorResponse, 
+    PersonEntity, 
+    OrganizationEntity, 
+    Relationship, 
+    ConversationSummary,
+    PreferenceExtractorResponse,
+    Preference,
+    CognitiveMemory,
+    MemoryAssociation,
+    ValidationStatus,
+    MemoryIndex,
+    SemanticAttributes,
+    TemporalContext,
+    MemoryRelations
 )
 from app.services.neo4j import(
-     create_entity_node, 
-     create_entity_relationship,
-     create_summary_node, 
-     driver,
-     create_preference_node,
-     fetch_existing_preference_types,
-     get_person_id_by_name,
-     create_summary_relationships
+    create_entity_node, 
+    create_entity_relationship,
+    create_summary_node, 
+    driver,
+    create_preference_node,
+    fetch_existing_preference_types,
+    get_person_id_by_name,
+    create_summary_relationships,
+    create_cognitive_memory_node,
+    initialize_schema_with_session
 )
 from langchain.prompts import PromptTemplate
 from pydantic import ValidationError
@@ -55,6 +65,16 @@ class SmileMemory:
         self.checkpoint_path = settings.app_config.get("checkpoint_path")
         self.current_state = None
         self.graph = None
+        self.embeddings_service = EmbeddingsService(driver)
+        
+        # Initialize schemas
+        with driver.session() as session:
+            try:
+                initialize_schema_with_session(session)
+                logger.info("Successfully initialized cognitive memory schema")
+            except Exception as e:
+                logger.error(f"Failed to initialize schema: {str(e)}")
+                raise
       
 
     def initialise_entity_extractor(self):
@@ -75,7 +95,12 @@ class SmileMemory:
         self.conversation_summarizer_llm = self.conversation_summarizer_llm.with_structured_output(ConversationSummary)
         self.conversation_summarizer_chain = self.conversation_summarizer_prompt | self.conversation_summarizer_llm
 
-
+    def initialise_cognitive_memory_extractor(self):
+        """Initialize the cognitive memory extractor chain."""
+        self.cognitive_memory_extractor_llm = llm_factory(self.settings, "cognitive_memory_extractor_agent")
+        self.cognitive_memory_extractor_prompt = PromptTemplate.from_template(self.settings.llm_config["cognitive_memory_extractor_agent"]["prompt_template"])
+        self.cognitive_memory_extractor_llm = self.cognitive_memory_extractor_llm.with_structured_output(CognitiveMemory)
+        self.cognitive_memory_extractor_chain = self.cognitive_memory_extractor_prompt | self.cognitive_memory_extractor_llm
 
     def process_entity_extraction_batch(self, messages: List[BaseMessage]):
         """
@@ -222,6 +247,7 @@ class SmileMemory:
         self.initialise_entity_extractor()
         self.initialise_preference_extractor()
         self.initialise_conversation_summarizer()
+        self.initialise_cognitive_memory_extractor()
 
         graph_builder = StateGraph(AgentState)
         graph_builder.add_node("extractor", self.extractor)
@@ -455,6 +481,7 @@ class SmileMemory:
         messages = state.messages
         remaining_messages = messages
         all_entities = []
+        all_memories = []
         all_summaries = []
         
         self.logger.info(f"Starting to process {len(messages)} messages")
@@ -475,7 +502,12 @@ class SmileMemory:
             entities_response = self.process_entity_extraction_batch(current_batch)
             all_entities.append(entities_response)
             self.logger.debug(f"Extracted entities: {entities_response}")
-            
+
+            # First: Process cognitive memories
+            memories = self.process_cognitive_memory_batch(current_batch)
+            all_memories.extend(memories)
+            self.logger.debug(f"Extracted cognitive memories: {len(memories)}")
+                
             # Process preference extraction
             preferences = self.process_preference_extraction_batch(current_batch)
             self.logger.debug(f"Extracted preferences: {preferences}")
@@ -519,7 +551,174 @@ class SmileMemory:
         logger.debug(f"Created filtered summary content: {filtered_content}")
         return HumanMessage(content=filtered_content)
 
+    def process_cognitive_memory_batch(self, messages: List[BaseMessage]) -> List[CognitiveMemory]:
+        """
+        Process a batch of messages to extract cognitive memories.
+        
+        Args:
+            messages (List[BaseMessage]): Batch of messages to process
+            
+        Returns:
+            List[CognitiveMemory]: List of extracted cognitive memories
+            
+        Logs:
+            DEBUG: Processing details and extracted memories
+            INFO: Batch processing status
+            ERROR: Any extraction or storage failures
+        """
+        max_retries = 3
+        retry_count = 0
+        examples = get_cognitive_memory_examples()
+        # Get existing memory types for context
+        with driver.session() as session:
+            memory_index = session.execute_read(self.get_memory_index)
+        
+        # Convert messages to conversation text
+        conversation_text = prepare_conversation_data(messages)
+        
+        while retry_count < max_retries:
+            try:
+                self.logger.debug(f"Processing cognitive memory batch with {len(messages)} messages")
+                
+                # Create prompt variables
+                prompt_variables = {
+                    "conversation_text": conversation_text,
+                    "existing_types": json.dumps(memory_index.model_dump()),
+                    "current_time": datetime.utcnow().isoformat(),
+                    "examples": examples
+                }
+                
+                # Extract memories
+                llm_output = self.cognitive_memory_extractor_chain.invoke(prompt_variables)
+                
+                # Convert LLM output to list if it's not already
+                memory_items = [llm_output] if not isinstance(llm_output, list) else llm_output
+                
+                # Convert items to CognitiveMemory objects if needed
+                memories = []
+                for item in memory_items:
+                    try:
+                        if isinstance(item, CognitiveMemory):
+                            memories.append(item)
+                        elif isinstance(item, dict):
+                            # Convert nested dictionaries to their respective models
+                            if 'semantic' in item and isinstance(item['semantic'], dict):
+                                item['semantic'] = SemanticAttributes(**item['semantic'])
+                            if 'temporal' in item and isinstance(item['temporal'], dict):
+                                item['temporal'] = TemporalContext(**item['temporal'])
+                            if 'validation' in item and isinstance(item['validation'], dict):
+                                item['validation'] = ValidationStatus(**item['validation'])
+                            if 'relations' in item and isinstance(item['relations'], dict):
+                                item['relations'] = MemoryRelations(**item['relations'])
+                            
+                            # Create CognitiveMemory object
+                            memory = CognitiveMemory(**item)
+                            memories.append(memory)
+                        else:
+                            self.logger.warning(f"Unexpected memory type: {type(item)}")
+                            continue
+                    except Exception as e:
+                        self.logger.error(f"Error converting memory to model: {str(e)}")
+                        continue
+                
+                # Process and store each memory
+                stored_memories = []
+                with driver.session() as session:
+                    for memory in memories:
+                        try:
+                            # Generate embedding if not present
+                            if memory.embedding is None:
+                                embedding_text = memory.to_embedding_text()
+                                memory.embedding = self.embeddings_service.generate_embedding(embedding_text)
+                            
+                            # Store the memory
+                            db_id = session.execute_write(create_cognitive_memory_node, memory)
+                            
+                            # Update the memory index
+                            session.execute_write(
+                                self.update_memory_index,
+                                memory.type,
+                                memory.content
+                            )
+                            
+                            stored_memories.append(memory)
+                            self.logger.debug(f"Stored cognitive memory: {memory.type} - {memory.id}")
+                            
+                        except Exception as e:
+                            self.logger.error(f"Error storing cognitive memory: {str(e)}")
+                            continue
+                
+                return stored_memories
+                
+            except ValidationError as ve:
+                retry_count += 1
+                self.logger.error(f"ValidationError on attempt {retry_count}: {ve}")
+                if retry_count >= max_retries:
+                    self.logger.error("Max retries reached. Unable to process memory batch.")
+                    raise
+                continue
+                
+            except Exception as e:
+                self.logger.exception(f"An unexpected error occurred: {e}")
+                raise
+                
+    def get_memory_index(self,tx) -> MemoryIndex:
+        """
+        Retrieve the current memory type index from Neo4j.
+        
+        Args:
+            tx: Neo4j transaction object
+            
+        Returns:
+            MemoryIndex: Current index of memory types
+        """
+        query = """
+        MATCH (m:CognitiveMemory)
+        RETURN m.type as type, m.content as content
+        """
+        
+        result = tx.run(query)
+        
+        # Build the index
+        index = MemoryIndex()
+        for record in result:
+            mem_type = record["type"]
+            content = record["content"]
+            
+            # Update counts
+            index.type_counts[mem_type] = index.type_counts.get(mem_type, 0) + 1
+            
+            # Update examples
+            if mem_type not in index.type_examples:
+                index.type_examples[mem_type] = []
+            if len(index.type_examples[mem_type]) < 3:  # Keep up to 3 examples
+                index.type_examples[mem_type].append(content)
+                
+        return index
 
+    def update_memory_index(self,tx, memory_type: str, content: str):
+        """
+        Update the memory type index with a new memory.
+        
+        Args:
+            tx: Neo4j transaction object
+            memory_type: Type of the memory
+            content: Content of the memory
+        """
+        query = """
+        MERGE (i:MemoryIndex {type: $type})
+        ON CREATE SET 
+            i.count = 1,
+            i.examples = [$content]
+        ON MATCH SET
+            i.count = i.count + 1,
+            i.examples = CASE 
+                WHEN size(i.examples) < 3 THEN i.examples + [$content]
+                ELSE i.examples
+            END
+        """
+        
+        tx.run(query, type=memory_type, content=content)
 
 if __name__ == "__main__":
     

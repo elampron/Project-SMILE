@@ -1,0 +1,137 @@
+{
+    "examples": [
+      {
+        "conversation_data": {
+          "messages": [
+            {
+              "sender": "Eric Lampron",
+              "content": "I need to remember to pick up Sophie from her piano lesson next Tuesday at 4pm. She's been taking lessons for 2 years now and loves it!",
+              "timestamp": "2024-03-19T14:30:00Z"
+            },
+            {
+              "sender": "Smiles",
+              "content": "I'll make a note of Sophie's piano lesson. That's wonderful that she's been enjoying it for so long! Would you like me to remind you closer to Tuesday?",
+              "timestamp": "2024-03-19T14:30:05Z"
+            }
+          ]
+        },
+        "memory_type_index": {
+          "type_counts": {
+            "Event": 10,
+            "Skill": 5,
+            "Relationship": 8
+          },
+          "type_examples": {
+            "Event": ["Birthday party at John's house", "Dental appointment next week"],
+            "Skill": ["Python programming experience", "Fluent in French"],
+            "Relationship": ["Close friends with Marie since college"]
+          }
+        },
+        "expected_cognitive_memories": [
+          {
+            "type": "Event",
+            "sub_type": "Recurring",
+            "content": "Sophie has piano lessons",
+            "structured_data": {
+              "person": "Sophie",
+              "activity": "piano lesson",
+              "day": "Tuesday",
+              "time": "4:00 PM"
+            },
+            "semantic": {
+              "keywords": ["Sophie", "piano", "lesson", "Tuesday"],
+              "categories": ["activity", "schedule"],
+              "entities": [],
+              "sentiment": 0.8,
+              "importance": 0.8,
+              "cognitive_aspects": ["TEMPORAL", "FACTUAL"]
+            },
+            "temporal": {
+              "observed_at": "2024-03-19T14:30:00Z",
+              "valid_from": "2024-03-19T14:30:00Z",
+              "valid_until": null,
+              "is_recurring": true,
+              "recurrence_pattern": {
+                "frequency": "weekly",
+                "day": "Tuesday",
+                "time": "16:00"
+              },
+              "temporal_references": ["next Tuesday", "4pm"]
+            },
+            "source": "direct_observation",
+            "source_messages": [
+              "I need to remember to pick up Sophie from her piano lesson next Tuesday at 4pm. She's been taking lessons for 2 years now and loves it!"
+            ],
+            "confidence": 0.9,
+            "validation": {
+              "is_valid": true,
+              "last_validated": "2024-03-19T14:30:00Z",
+              "validation_source": "direct_observation",
+              "validation_notes": "Directly stated by Eric Lampron",
+              "contradictions": [],
+              "supporting_evidence": []
+            },
+            "relations": {
+              "related_entities": [],
+              "related_summaries": [],
+              "related_preferences": [],
+              "associations": []
+            }
+          },
+          {
+            "type": "Skill",
+            "sub_type": "Musical",
+            "content": "Sophie plays piano and has been taking lessons for 2 years",
+            "structured_data": {
+              "person": "Sophie",
+              "skill": "piano",
+              "duration": "2 years",
+              "proficiency_level": "taking lessons"
+            },
+            "semantic": {
+              "keywords": ["Sophie", "piano", "music", "lessons"],
+              "categories": ["skill", "hobby", "music"],
+              "entities": [],
+              "sentiment": 0.7,
+              "importance": 0.7,
+              "cognitive_aspects": ["FACTUAL", "TEMPORAL"]
+            },
+            "temporal": {
+              "observed_at": "2024-03-19T14:30:00Z",
+              "valid_from": "2022-03-19T00:00:00Z",
+              "valid_until": null,
+              "is_recurring": false,
+              "recurrence_pattern": null,
+              "temporal_references": ["2 years"]
+            },
+            "source": "direct_observation",
+            "source_messages": [
+              "I need to remember to pick up Sophie from her piano lesson next Tuesday at 4pm. She's been taking lessons for 2 years now and loves it!"
+            ],
+            "confidence": 0.9,
+            "validation": {
+              "is_valid": true,
+              "last_validated": "2024-03-19T14:30:00Z",
+              "validation_source": "direct_observation",
+              "validation_notes": "Duration and activity directly stated",
+              "contradictions": [],
+              "supporting_evidence": []
+            },
+            "relations": {
+              "related_entities": [],
+              "related_summaries": [],
+              "related_preferences": [],
+              "associations": []
+            }
+          }
+        ],
+        "notes": [
+          "Shows how to extract multiple memory types from a single conversation",
+          "Demonstrates temporal context for both recurring and point-in-time events",
+          "Illustrates structured_data usage for schedulable events",
+          "Shows proper confidence levels for directly stated information",
+          "Includes all required fields from the updated model"
+        ]
+      }
+    ]
+  }

@@ -94,31 +94,40 @@ class Smile:
         
         while retry_count < max_retries:
             try:
-                formatted_conversation = self.format_messages_for_model(state)
+                # Get formatted messages
+                formatted_messages = self.format_messages_for_model(state)
                 
-                # Filter out tool messages that don't have corresponding tool calls
-                filtered_messages = []
-                tool_call_ids = set()
-                
-                # Extract the last 3 messages from state and combine their content for better context
+                # Get context from last messages
                 last_messages = state.messages[-3:]  # Get last 3 messages
-                user_input = "\n".join([msg.content for msg in last_messages])  # Join message contents with newlines
+                user_input = "\n".join([msg.content for msg in last_messages if hasattr(msg, 'content')])
                 context = self.context_manager.get_formatted_context(user_input)
                 
+                # Create prompt
                 prompt = ChatPromptTemplate.from_messages([
                     ("system", self.settings.llm_config.get("chatbot_agent").get("prompt_template")),
-                    *formatted_conversation
+                    *formatted_messages
                 ])
 
+                # Create chain with tools
                 chain = prompt | self.chatbot_agent_llm.bind_tools(self.tools)
 
+                # Prepare prompt values
                 prompt_values = {
                     "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "context": context
                 }
 
+                # Get response
                 response = chain.invoke(prompt_values)
-                return {"messages": [response]}
+                
+                # Update state with new message
+                new_messages = state.messages.copy()
+                if isinstance(response, BaseMessage):
+                    new_messages.append(response)
+                else:
+                    new_messages.append(AIMessage(content=str(response)))
+                
+                return AgentState(messages=new_messages)
                 
             except Exception as e:
                 retry_count += 1
@@ -131,6 +140,8 @@ class Smile:
                 # Add exponential backoff
                 wait_time = 2 ** retry_count
                 time.sleep(wait_time)
+                
+        raise Exception("Failed to get model response after all retries")
     
 
     def should_continue(self, state: AgentState) -> Literal["tools", "__end__"]:

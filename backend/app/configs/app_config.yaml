@@ -19,7 +19,7 @@ langchain_config:
   tracing_v2: "true"
   endpoint: "https://api.smith.langchain.com"
   project: "project-smile"
-  thread_id: "MainThread"
+  thread_id: "Testing-01"
   checkpoint_id: null # "1efaad66-193e-6e38-80e1-932ddc4b99a4" #"1efaaaad-23d0-6f80-80ae-5882b5747cd7"
 
 # Postgres configuration

@@ -740,7 +740,7 @@ if __name__ == "__main__":
             
             config = {
                 "configurable": {
-                    "thread_id": "MainThread", 
+                    "thread_id": settings.app_config["langchain_config"]["thread_id"], 
                     "checkpoint_id": settings.app_config["langchain_config"]["checkpoint_id"]
                 }
             }

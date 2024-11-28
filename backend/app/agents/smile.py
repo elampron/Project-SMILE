@@ -214,33 +214,42 @@ class Smile:
         self.logger.info("Agent graph initialized successfully")
 
     def get_conversation_history(self, num_messages=50, thread_id="MainThread"):
-        """Synchronously retrieve conversation history."""
+        """
+        Retrieve the last `num_messages` messages from the conversation history using LangGraph checkpointing.
+        
+        Args:
+            num_messages (int): The number of messages to retrieve. Defaults to 50.
+            thread_id (str): The thread ID for which to retrieve the conversation. Defaults to "MainThread".
+        
+        Returns:
+            List[Dict]: A list of messages with their content, role, and timestamp.
+        """
         try:
             if not self._initialized or not self._checkpointer:
                 self.initialize()
                 
-            config = {"configurable": {"thread_id": thread_id, "checkpoint_id": self.settings.app_config["langchain_config"]["checkpoint_id"]}}
+            config = {"configurable": {"thread_id": thread_id}}
             
-            checkpoint_tuple = self._checkpointer.get_tuple(config)
+            # Get all states for this thread
             
-            if checkpoint_tuple is None or not hasattr(checkpoint_tuple, 'checkpoint'):
-                self.logger.warning(f"No valid checkpoint found for thread_id: {thread_id}")
-                return []
-
-            messages = checkpoint_tuple.checkpoint.get('channel_values', {}).get('messages', [])
+            state = self.graph.get_state(config)
+            
+            
+            # Get the latest state's messages
+            latest_state = state
+            messages = latest_state.values.get('messages', [])
             
             # Prepare the conversation history
             conversation_history = []
             for msg in messages[-num_messages:]:
-                # Extract message details based on type
                 if isinstance(msg, (HumanMessage, AIMessage)):
                     message = {
-                        "role": "user" if isinstance(msg, HumanMessage) else "assistant",
-                        "content": msg.content,
-                        "timestamp": msg.additional_kwargs.get('timestamp', 
-                               msg.response_metadata.get('timestamp', 
-                               datetime.now().isoformat())),
-                        "message_id": msg.id
+                        "role": "human" if isinstance(msg, HumanMessage) else "assistant",
+                        "content": msg.content if hasattr(msg, 'content') else str(msg),
+                        "timestamp": getattr(msg, 'timestamp', 
+                                          msg.additional_kwargs.get('timestamp', 
+                                          datetime.now().isoformat())),
+                        "message_id": msg.id if hasattr(msg, 'id') else None
                     }
                     conversation_history.append(message)
 
@@ -249,7 +258,6 @@ class Smile:
 
         except Exception as e:
             self.logger.error(f"Error retrieving conversation history: {str(e)}", exc_info=True)
-            self._initialized = False
             raise
 
     def stream(self, message: str, config: Dict):

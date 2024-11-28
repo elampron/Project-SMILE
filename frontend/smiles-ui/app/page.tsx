@@ -172,13 +172,15 @@ export default function ChatInterface() {
 
         const data = await response.json()
         if (data.status === 'success') {
-          // Map the data to ChatMessage format
+          // Map the data to ChatMessage format with correct role mapping
           const historyMessages: ChatMessage[] = data.data.map((msg: any) => ({
             content: msg.content,
+            // Map 'human' to 'user' and 'assistant' to 'assistant'
             role: msg.role === 'human' ? 'user' : 'assistant',
             timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
             thread_id: threadId
           }))
+          console.log('Loaded history messages:', historyMessages); // Debug log
           setMessages(historyMessages)
         } else {
           console.error('Unexpected response format:', data)

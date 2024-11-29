@@ -14,20 +14,20 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: Optional[str] = None # Twilio auth token
     NGROK_AUTHTOKEN: Optional[str] = None # Ngrok authtoken
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
+    app_config_path: str = os.path.join("app", "configs", "app_config.yaml")
+    llm_config_path: str = os.path.join("app", "configs", "llm_config.yaml")
 
     # Define the project settings
     @property
     def app_config(self):
-        config_path = os.path.join("app", "configs", "app_config.yaml")
-        with open(config_path, "r") as file:
+        with open(self.app_config_path, "r") as file:
             return yaml.safe_load(file)
     
     # Define the LLM configuration
     @property
     def llm_config(self):
         # Change the path to point to your actual YAML config file
-        config_path = os.path.join("app", "configs", "llm_config.yaml")
-        with open(config_path, "r") as file:
+        with open(self.llm_config_path, "r") as file:
             return yaml.safe_load(file)
         
    

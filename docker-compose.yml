@@ -12,3 +12,59 @@ services:
     volumes:
       - ./neo4j-data/data:/data
     restart: unless-stopped
+    networks:
+      - smile-network
+
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    
+    volumes:
+      # Development hot-reload
+      # Checkpoints persistence
+      - ./backend/checkpoints:/checkpoints
+       
+    networks:
+      - smile-network
+    restart: unless-stopped
+
+  monitoring:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile.monitoring
+    ports:
+      - "8001:8001"
+    depends_on:
+      - backend
+    environment:
+      - BACKEND_URL=http://backend:8002
+    networks:
+      - smile-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    networks:
+      - smile-network
+    restart: unless-stopped
+    
+networks:
+  smile-network:
+    driver: bridge
+# Named volumes for persistence
+volumes:
+  checkpoints:
+    driver: local

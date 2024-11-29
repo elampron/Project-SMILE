@@ -23,9 +23,6 @@ import time
 
 
 
-
-
-
 class Smile:
     def __init__(self):
         """
@@ -98,9 +95,11 @@ class Smile:
                 formatted_messages = self.format_messages_for_model(state)
                 
                 # Get context from last messages
-                last_messages = state.messages[-3:]  # Get last 3 messages
+                # Filter out tool messages and get last 5 human/assistant messages
+                last_messages = [msg for msg in state.messages if isinstance(msg, (HumanMessage, AIMessage))][-5:]
                 user_input = "\n".join([msg.content for msg in last_messages if hasattr(msg, 'content')])
                 context = self.context_manager.get_formatted_context(user_input)
+                self.logger.info(f"Context: {context}")
                 
                 # Create prompt
                 prompt = ChatPromptTemplate.from_messages([
@@ -121,14 +120,10 @@ class Smile:
                 response = chain.invoke(prompt_values)
                 
                 # Update state with new message
-                new_messages = state.messages.copy()
-                if isinstance(response, BaseMessage):
-                    new_messages.append(response)
-                else:
-                    new_messages.append(AIMessage(content=str(response)))
+               
                 
-                return AgentState(messages=new_messages)
-                
+                return {"messages": [response]}
+            
             except Exception as e:
                 retry_count += 1
                 self.logger.warning(f"Attempt {retry_count} failed: {str(e)}")

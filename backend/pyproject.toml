@@ -30,6 +30,7 @@ neo4j = "^5.26.0"
 langmem = "^0.0.4"
 aiosqlite = "^0.20.0"
 ipython = "^8.29.0"
+prometheus-client = "^0.21.0"
 
 
 [build-system]

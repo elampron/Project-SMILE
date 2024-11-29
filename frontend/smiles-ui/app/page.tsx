@@ -28,7 +28,7 @@ function AdminPanel() {
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch('http://elmonster.local:8000/settings');
+      const response = await fetch('http://backend:8002/settings');
       const data = await response.json();
       if (data.status === 'success') {
         setSettings(data.data);
@@ -47,37 +47,77 @@ function AdminPanel() {
 
   const handleEdit = async (path: string, newValue: string) => {
     try {
-      // Construct the update payload based on the path
       const pathParts = path.split('.');
-      const configType = pathParts[0];
-      let updateValue = settings?.[configType as keyof Settings] || {};
+      // Remove 'root' from the path if it exists
+      if (pathParts[0] === 'root') {
+        pathParts.shift();
+      }
       
-      // Navigate to the parent object
+      // Determine which config type we're updating
+      const configType = pathParts[0];
+      
+      // Get the current settings for this config type
+      const currentSettings = settings?.[configType as keyof Settings];
+      if (!currentSettings) {
+        throw new Error(`Invalid config type: ${configType}`);
+      }
+
+      // Create a deep copy of the current settings
+      const updateValue = JSON.parse(JSON.stringify(currentSettings));
+      
+      // Navigate through the path to set the new value
       let current = updateValue;
       for (let i = 1; i < pathParts.length - 1; i++) {
+        if (!(pathParts[i] in current)) {
+          current[pathParts[i]] = {};
+        }
         current = current[pathParts[i]];
       }
       
-      // Update the value
-      current[pathParts[pathParts.length - 1]] = newValue;
+      // Set the new value
+      const lastKey = pathParts[pathParts.length - 1];
+      
+      // Try to parse the value if it's a boolean or number
+      let parsedValue: string | boolean | number = newValue;
+      if (newValue.toLowerCase() === 'true' || newValue.toLowerCase() === 'false') {
+        parsedValue = newValue.toLowerCase() === 'true';
+      } else if (!isNaN(Number(newValue)) && newValue.trim() !== '') {
+        parsedValue = Number(newValue);
+      }
+      
+      current[lastKey] = parsedValue;
 
-      const response = await fetch('http://elmonster.local:8000/settings', {
+      console.log('Updating settings:', {
+        config_type: configType,
+        settings_data: updateValue
+      });
+
+      const response = await fetch('http://backend:8002/settings', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           config_type: configType,
-          settings: updateValue
+          settings_data: updateValue
         }),
       });
 
       if (response.ok) {
-        fetchSettings(); // Refresh settings
-        setEditMode(null);
+        const result = await response.json();
+        if (result.status === 'success') {
+          fetchSettings(); // Refresh settings
+          setEditMode(null);
+        } else {
+          throw new Error(result.message || 'Failed to update settings');
+        }
+      } else {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
     } catch (error) {
       console.error('Error updating setting:', error);
+      // You might want to show this error to the user
+      alert(`Failed to update setting: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -167,7 +207,7 @@ export default function ChatInterface() {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const response = await fetch(`http://elmonster.local:8000/history?thread_id=Testing-01&num_messages=50`)
+        const response = await fetch(`http://backend:8002/history?thread_id=Testing-01&num_messages=50`)
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
 
         const data = await response.json()
@@ -221,8 +261,8 @@ export default function ChatInterface() {
     setInputMessage('')
 
     try {
-      console.log('4. Attempting API call to:', 'http://elmonster.local:8000/chat');
-      const response = await fetch('http://elmonster.local:8000/chat', {
+      console.log('4. Attempting API call to:', 'http://backend:8002/chat');
+      const response = await fetch('http://backend:8002/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -243,8 +283,6 @@ export default function ChatInterface() {
       const reader = response.body?.getReader()
       if (!reader) throw new Error('Response body is null')
 
-      let assistantResponse = ''
-      
       // Create placeholder message for streaming
       const assistantMessage: ChatMessage = {
         content: '',
@@ -254,18 +292,23 @@ export default function ChatInterface() {
       }
       setMessages(prev => [...prev, assistantMessage])
 
+      let streamedContent = ''
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
         // Decode and accumulate the chunks
         const chunk = new TextDecoder().decode(value)
-        assistantResponse += chunk
-
-        // Update the last message with accumulated response
+        console.log('Received chunk:', chunk)
+        
+        // Accumulate the content instead of replacing it
+        streamedContent += chunk
+        
+        // Update the message with accumulated content
         setMessages(prev => prev.map((msg, index) => 
           index === prev.length - 1 
-            ? { ...msg, content: assistantResponse }
+            ? { ...msg, content: streamedContent }
             : msg
         ))
       }

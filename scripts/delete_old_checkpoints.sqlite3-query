@@ -1,0 +1,26 @@
+-- database: ../checkpoints/smile.db
+SELECT 'Starting checkpoint cleanup operation' AS log_message;
+-- Delete checkpoints that are not in the latest 3 per thread_id
+DELETE FROM checkpoints 
+WHERE (thread_id, checkpoint_ns, checkpoint_id) NOT IN (
+   -- Subquery to get the latest 3 checkpoints for each thread_id
+   SELECT 
+       thread_id,
+       checkpoint_ns,
+       checkpoint_id
+   FROM (
+       SELECT 
+           thread_id,
+           checkpoint_ns,
+           checkpoint_id,
+           -- Create a row number partitioned by thread_id, ordered by checkpoint identifiers
+           ROW_NUMBER() OVER (
+               PARTITION BY thread_id 
+               ORDER BY checkpoint_ns DESC, checkpoint_id DESC
+           ) as rn
+       FROM checkpoints
+   ) ranked_checkpoints
+   WHERE rn <= 3  -- Keep only the top 3 most recent checkpoints
+);
+-- Log the completion of the cleanup operation
+SELECT 'Checkpoint cleanup operation completed' AS log_message;

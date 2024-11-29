@@ -1,0 +1,13 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Create a requirements.monitoring.txt file with minimal dependencies
+COPY requirements.monitoring.txt .
+RUN pip install --no-cache-dir -r requirements.monitoring.txt
+
+# Copy monitoring code
+COPY app/monitoring ./app/monitoring
+
+# Run the FastAPI application using uvicorn
+CMD ["uvicorn", "app.monitoring.main:app", "--host", "0.0.0.0", "--port", "8001"]

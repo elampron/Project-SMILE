@@ -1,6 +1,7 @@
 # ./backend/src/api/main.py
 
 # Import FastAPI class from fastapi module
+from time import time
 from fastapi import FastAPI
 
 # Import CORSMiddleware to handle Cross-Origin Resource Sharing
@@ -9,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import the router from the app.api.routers module
 from app.api.routers import router
 
+from httpx import Request
+from prometheus_client import Counter, Histogram, make_asgi_app
 import uvicorn
 import asyncio
 import logging
@@ -28,6 +31,18 @@ os.environ["LANGCHAIN_PROJECT"] = settings.app_config["langchain_config"]["proje
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+REQUESTS = Counter(
+   'api_requests_total',
+   'Total requests by method and path',
+   ['method', 'path', 'status']
+)
+
+LATENCY = Histogram(
+   'api_request_duration_seconds',
+   'Request duration in seconds',
+   ['method', 'path']
+)
+
 # Create an instance of the FastAPI class
 app = FastAPI()
 
@@ -43,6 +58,33 @@ app.add_middleware(
     allow_methods=["*"],  # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
     allow_headers=["*"],  # Allow all headers
 )
+
+async def track_requests(request: Request, call_next):
+   """Tracks request metrics including counts and latency."""
+   method = request.method
+   path = request.url.path
+   
+   # Track request duration
+   start_time = time()
+   response = await call_next(request)
+   duration = time() - start_time
+   
+   # Record metrics
+   REQUESTS.labels(
+       method=method,
+       path=path,
+       status=response.status_code
+   ).inc()
+   
+   LATENCY.labels(
+       method=method,
+       path=path
+   ).observe(duration)
+   
+   return response
+
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 def run_app():
     """Run the FastAPI application synchronously."""

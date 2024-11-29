@@ -6,6 +6,7 @@ from app.agents.smile import Smile
 from pydantic import BaseModel
 from app.configs.settings import settings
 import yaml
+import os
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -140,30 +141,49 @@ async def update_settings(update_request: UpdateSettingsRequest):
             )
 
         # Get the file path based on config type
-        file_path = settings.get_config_path(update_request.config_type)
+        config_paths = {
+            "app_config": settings.app_config_path,
+            "llm_config": settings.llm_config_path
+        }
         
-        # Update the settings in memory
-        current_config = getattr(settings, update_request.config_type)
-        current_config.update(update_request.settings_data)
+        file_path = config_paths.get(update_request.config_type)
+        if not file_path:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Config path not found for {update_request.config_type}"
+            )
         
-        # Write the updated settings to the YAML file
         try:
+            # Read the current config file
+            with open(file_path, 'r') as f:
+                current_config = yaml.safe_load(f) or {}
+            
+            # Update with new settings
+            current_config.update(update_request.settings_data)
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            
+            # Write the updated settings to the YAML file
             with open(file_path, 'w') as f:
                 yaml.safe_dump(current_config, f)
+                
+            # Update the settings object in memory
+            setattr(settings, update_request.config_type, current_config)
+            
+            logger.info(f"Successfully updated {update_request.config_type} settings")
+            
         except Exception as e:
             logger.error(f"Error writing to config file: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail=f"Error writing to config file: {str(e)}"
             )
-            
-        # Reload the settings
-        settings.reload()
         
         return {
             "status": "success",
             "message": f"Successfully updated {update_request.config_type}",
-            "data": getattr(settings, update_request.config_type)
+            "data": current_config
         }
     except Exception as e:
         logger.error(f"Error updating settings: {str(e)}", exc_info=True)

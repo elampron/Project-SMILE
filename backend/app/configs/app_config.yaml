@@ -1,51 +1,38 @@
-# Project configuration
-project_info:
-  project_name: "Project-SMILE"
-  project_version: "0.1.0"
-  project_description: "Project-SMILE"
-
-# Debug configuration
-debug: "false"
-
-checkpoint_path: "../checkpoints/smile.db"
-
-# Log configuration
-log_config:
-  log_level: "INFO"
-  log_file: ""
-
-# Langchain configuration
+app_config_path: app/configs/app_config.yaml
+checkpoint_path: ../checkpoints/smile.db
+debug: 'false'
 langchain_config:
-  tracing_v2: "true"
-  endpoint: "https://api.smith.langchain.com"
-  project: "project-smile"
-  thread_id: "Testing-01"
-  checkpoint_id: null # "1efaad66-193e-6e38-80e1-932ddc4b99a4" #"1efaaaad-23d0-6f80-80ae-5882b5747cd7"
-
-# Postgres configuration
-postgres_config:
-  conn: "postgresql://postgres:postgres@localhost:5432/checkpoints"
-
-# Neo4j configuration
-neo4j_config:
-  uri: "bolt://localhost:7687"
-  username: "neo4j"
-  password: "secretdb"
-
+  checkpoint_id: null
+  endpoint: https://api.smith.langchain.com
+  project: project-smile
+  thread_id: Testing-01
+  tracing_v2: 'true'
+log_config:
+  log_file: ''
+  log_level: INFO
 main_user:
-  name: "Eric"
-  main_email: "elampron@gmail.com"
-  id: "550e8400-e29b-41d4-a716-446655440000" # Example UUID
-  person_id: null # Optional UUID reference to PersonEntity
-  created_at: "2024-01-24T00:00:00Z" # Current timestamp in ISO format
-  updated_at: null # Optional timestamp for last update
+  created_at: '2024-01-24T00:00:00Z'
+  id: 550e8400-e29b-41d4-a716-446655440000
+  main_email: elampron@gmail.com
+  name: Eric
   person_details:
-    type: "Person"  # Entity type
-    name: "Eric Lampron"  # Full name
-    birth_date: null  # Birth date
-    email: "elampron@gmail.com"  # Email address
-    phone: "+14155550123"  # Phone number
-    address: "123 Main St, Anytown, USA"  # Physical address
-    notes: null  # Additional notes
-    category: "Human"  # Person category
-
+    address: 123 Main St, Anytown, USA
+    birth_date: null
+    category: Human
+    email: elampron@gmail.com
+    name: Eric Lampron
+    notes: null
+    phone: '+14155550123'
+    type: Person
+  person_id: null
+  updated_at: null
+neo4j_config:
+  password: secretdb
+  uri: bolt://neo4j:7687
+  username: neo4j
+postgres_config:
+  conn: postgresql://postgres:postgres@localhost:5432/checkpoints
+project_info:
+  project_description: Project-SMILES
+  project_name: Project-SMILE
+  project_version: 0.1.0

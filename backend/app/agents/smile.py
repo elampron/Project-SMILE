@@ -12,6 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from app.configs.settings import settings
 from app.tools.public_tools import web_search_tool, file_tools
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from app.tools.custom_tools import execute_python, execute_cmd  # Importing both custom tools
 from app.utils.llm import llm_factory, prepare_conversation_data
 from app.models.agents import AgentState, User
@@ -42,7 +43,8 @@ class Smile:
         self.chatbot_agent_llm = llm_factory(self.settings,"chatbot_agent")
         self.chatbot_agent_prompt = PromptTemplate.from_template(self.settings.llm_config["chatbot_agent"]["prompt_template"])
         self.embeddings_client = llm_factory(self.settings,"embeddings")
-        self.db_path = "..//checkpoints//smile.db"
+        self.db_path = ".//checkpoints//smile.db"
+        self.postgres_url = settings.app_config.get("postgres_config")["conn"]
         self.graph = None
         self.tools = None
         self._checkpointer = None
@@ -54,8 +56,35 @@ class Smile:
         try:
             # Initialize checkpointer
             if not self._initialized:
-                self._saver = SqliteSaver.from_conn_string(self.db_path)
-                self._checkpointer = self._saver.__enter__()
+                try:
+                    self.logger.info(f"Connecting to PostgreSQL at {self.postgres_url}...")
+                    
+                    # Create direct connection with optimized settings
+                    from psycopg import Connection
+                    conn = Connection.connect(
+                        self.postgres_url,
+                        autocommit=True,
+                        prepare_threshold=None,  # Disable prepared statements
+                        options="-c synchronous_commit=off"  # Optimize for performance
+                    )
+                    
+                    # Create saver with the connection and use it directly as checkpointer
+                    self._checkpointer = PostgresSaver(conn)
+                    
+                    # Setup tables using the checkpointer
+                    self._checkpointer.setup()
+                    self.logger.info("PostgreSQL tables created successfully")
+                    self.logger.info("Successfully connected to PostgreSQL")
+                except Exception as pg_error:
+                    self.logger.error(
+                        "Failed to connect to PostgreSQL. Please ensure:\n"
+                        "1. PostgreSQL is running\n"
+                        "2. The connection string in app_config.yaml is correct\n"
+                        "3. If running locally, use 'localhost' instead of 'postgres' as the host\n"
+                        f"Error details: {str(pg_error)}"
+                    )
+                    raise
+                
                 self._initialized = True
             
             # Initialize graph if needed
@@ -65,9 +94,9 @@ class Smile:
             return self
         except Exception as e:
             self.logger.error(f"Error during initialization: {str(e)}", exc_info=True)
-            if self._saver:
+            if hasattr(self, '_checkpointer') and hasattr(self._checkpointer, 'conn'):
                 try:
-                    self._saver.__exit__(type(e), e, e.__traceback__)
+                    self._checkpointer.conn.close()
                 except Exception:
                     pass
             raise
@@ -288,6 +317,7 @@ class Smile:
         try:
             # Get main user config
             user_config = self.settings.app_config.get("main_user")
+            langchain_config = self.settings.app_config.get("langchain_config")
             if not user_config:
                 raise ValueError("Main user configuration is missing in app_config.yaml")
 
@@ -296,6 +326,7 @@ class Smile:
                 name=user_config["name"],
                 main_email=user_config["main_email"]
             )
+            self.thread_id = langchain_config["thread_id"]
 
             # Persist user to Neo4j and get updated user with person_id
             with driver.session() as session:

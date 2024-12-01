@@ -1,5 +1,5 @@
 app_config_path: app/configs/app_config.yaml
-checkpoint_path: ../checkpoints/smile.db
+checkpoint_path: ./checkpoints/smile.db
 debug: 'false'
 langchain_config:
   checkpoint_id: null
@@ -31,7 +31,7 @@ neo4j_config:
   uri: bolt://neo4j:7687
   username: neo4j
 postgres_config:
-  conn: postgresql://postgres:postgres@localhost:5432/checkpoints
+  conn: postgresql://postgres:postgres@localhost:5432/smile_checkpoints
 project_info:
   project_description: Project-SMILES
   project_name: Project-SMILE

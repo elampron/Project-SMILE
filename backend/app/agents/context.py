@@ -12,7 +12,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from uuid import UUID
 from neo4j import GraphDatabase, Session
-from app.services.neo4j import get_similar_memories
+from app.services.neo4j import get_similar_memories, driver
+from app.services.embeddings import EmbeddingsService
 
 from app.models.memory import (
     Preference, PersonEntity, OrganizationEntity, 
@@ -44,6 +45,7 @@ class ContextManager:
             driver: Neo4j driver instance for database operations
         """
         self.driver = driver
+        self.embeddings_service = EmbeddingsService(driver)
         
     def get_formatted_context(self, user_input: str) -> str:
         """
@@ -108,20 +110,81 @@ class ContextManager:
             return ""
     
     def _get_important_preferences(self) -> List[Preference]:
-        """Get all preferences with importance = 5."""
+        """
+        Get all preferences with high importance (>= 4).
+        These are preferences that should always be considered regardless of the current context.
+        
+        Returns:
+            List[Preference]: List of high-importance preferences
+        """
         query = """
         MATCH (p:Preference)
-        WHERE p.importance = 5
-        RETURN p
+        WHERE p.importance >= 4
+        RETURN p {
+            .*, 
+            embedding: null
+        } as p
+        ORDER BY p.importance DESC, p.created_at DESC
         """
         with self.driver.session() as session:
             result = session.run(query)
             return [self._neo4j_to_preference(record["p"]) for record in result]
     
     def _get_relevant_preferences(self, user_input: str) -> List[Preference]:
-        """Get preferences relevant to the user's input using semantic search."""
-        # TODO: Implement semantic search for preferences
-        return []
+        """
+        Get preferences relevant to the user's input using semantic search.
+        This method finds preferences whose embeddings are semantically similar to the user's input.
+        
+        Args:
+            user_input: The user's current question or comment
+            
+        Returns:
+            List[Preference]: List of semantically relevant preferences
+            
+        Note:
+            Preferences are ordered by semantic similarity and filtered to avoid duplicates
+            with important preferences.
+        """
+        # First get important preferences to avoid duplicates
+        important_preferences = {str(p.id) for p in self._get_important_preferences()}
+        
+        try:
+            # Generate embedding for user input
+            query_embedding = self.embeddings_service.generate_embedding(user_input)
+            
+            # Use similarity search from embeddings service
+            results = self.embeddings_service.similarity_search(
+                query_embedding=query_embedding,
+                node_label="Preference",
+                limit=5,
+                min_score=0.7
+            )
+            
+            # Filter out important preferences and convert to Preference objects
+            return [
+                self._neo4j_to_preference(result) 
+                for result in results 
+                if str(result.get('id')) not in important_preferences 
+                and result.get('importance', 0) < 4
+            ]
+                
+        except Exception as e:
+            logger.error(f"Error getting relevant preferences: {str(e)}")
+            # Fallback to getting recent preferences if semantic search fails
+            fallback_query = """
+            MATCH (p:Preference)
+            WHERE NOT p.id IN $exclude_ids
+                AND p.importance < 4
+            RETURN p {
+                .*, 
+                embedding: null
+            } as p
+            ORDER BY p.created_at DESC
+            LIMIT 5
+            """
+            with self.driver.session() as session:
+                result = session.run(fallback_query, exclude_ids=list(important_preferences))
+                return [self._neo4j_to_preference(record["p"]) for record in result]
     
     def _get_relevant_entities(self, user_input: str) -> List[Dict]:
         """Get entities relevant to the user's input using semantic search."""
@@ -160,7 +223,10 @@ class ContextManager:
             query = """
             MATCH (m:CognitiveMemory)
             WHERE m.importance >= 3
-            RETURN m
+                RETURN m {
+                    .*, 
+                    embedding: null
+                } as m
             ORDER BY m.created_at DESC
             LIMIT 5
             """
@@ -170,15 +236,18 @@ class ContextManager:
     
     def _get_recent_summaries(self) -> List[ConversationSummary]:
         """
-        Get the most recent conversation summaries.
+        Get the most recent conversation summaries from the last 24 hours.
         
         Returns:
             List[ConversationSummary]: List of recent conversation summaries
         """
         query = """
-        MATCH (s:ConversationSummary)
-        WHERE datetime() - s.created_at <= duration('P1D')  // Within last 24 hours
-        RETURN s
+        MATCH (s:Summary)
+        WHERE s.created_at >= datetime() - duration('P1D')  // Within last 24 hours
+        RETURN s {
+            .*, 
+            embedding: null
+        } as s  
         ORDER BY s.created_at DESC
         LIMIT 3
         """
@@ -198,8 +267,11 @@ class ContextManager:
         """
         # TODO: Implement semantic search for summaries
         query = """
-        MATCH (s:ConversationSummary)
-        RETURN s
+        MATCH (s:Summary)
+        RETURN s {
+        .*, 
+            embedding: null
+        } as s
         ORDER BY s.created_at DESC
         LIMIT 5
         """
@@ -249,20 +321,32 @@ class ContextManager:
     def _format_summaries(self, summaries: List[ConversationSummary]) -> List[str]:
         """
         Format conversation summaries into human-readable strings.
+        Shows the actual conversation time period instead of creation time for better context.
         
         Args:
             summaries: List of ConversationSummary objects to format
             
         Returns:
-            List[str]: Formatted summary strings
+            List[str]: Formatted summary strings with conversation time period
         """
         formatted = []
         for summary in summaries:
             topics_str = ", ".join(summary.topics) if summary.topics else "No topics"
+            time_period = ""
+            if summary.start_time and summary.end_time:
+                start_str = summary.start_time.strftime('%Y-%m-%d %H:%M')
+                end_str = summary.end_time.strftime('%Y-%m-%d %H:%M')
+                if start_str[:10] == end_str[:10]:  # Same day
+                    time_period = f"Conversation on {start_str[:10]} from {start_str[11:]} to {end_str[11:]}"
+                else:
+                    time_period = f"Conversation from {start_str} to {end_str}"
+            else:
+                time_period = "Time period unknown"
+                
             formatted.append(
                 f"- {summary.content}\n"
                 f"  Topics: {topics_str}\n"
-                f"  Time: {summary.created_at.strftime('%Y-%m-%d %H:%M')}"
+                f"  {time_period}"
             )
         return formatted
     
@@ -401,3 +485,59 @@ class ContextManager:
         except Exception as e:
             logger.error(f"Error converting Neo4j node to ConversationSummary: {str(e)}")
             raise
+
+            
+if __name__ == "__main__":
+    """
+    Test script to validate the ContextManager's get_formatted_context functionality.
+    This allows for quick testing and verification of context gathering and formatting.
+    """
+    import os
+    from dotenv import load_dotenv
+    
+    # Setup logging for test
+    logging.basicConfig(level=logging.DEBUG)
+    logger = logging.getLogger(__name__)
+    
+    # Load environment variables
+    load_dotenv()
+    
+    try:
+        # Initialize Neo4j driver and ContextManager
+        logger.info("Initializing Neo4j driver and ContextManager...")
+        neo4j_uri = settings.app_config["neo4j_config"]["uri"]
+        neo4j_username = settings.app_config["neo4j_config"]["username"]
+        neo4j_password = settings.app_config["neo4j_config"]["password"]
+        
+        driver = GraphDatabase.driver(
+            neo4j_uri,
+            auth=(neo4j_username, neo4j_password)
+        )
+        
+        context_manager = ContextManager(driver)
+        
+        # Test cases
+        test_inputs = [
+            "When I talk about Thinkmax, what comes to mind?",
+            "Do you remember what's next on our Smiles project?"
+        ]
+        
+        # Run tests
+        for test_input in test_inputs:
+            logger.info(f"\nTesting with input: {test_input}")
+            try:
+                formatted_context = context_manager.get_formatted_context(test_input)
+                logger.info("Formatted Context:")
+                logger.info("-" * 50)
+                logger.info(formatted_context)
+                logger.info("-" * 50)
+            except Exception as e:
+                logger.error(f"Error processing input '{test_input}': {str(e)}")
+                
+    except Exception as e:
+        logger.error(f"Test script failed: {str(e)}")
+    finally:
+        # Cleanup
+        if 'driver' in locals():
+            driver.close()
+            logger.info("Neo4j driver closed")

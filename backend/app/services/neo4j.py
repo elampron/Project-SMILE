@@ -561,7 +561,10 @@ def create_cognitive_memory_node(tx: ManagedTransaction, memory: CognitiveMemory
     create_query = """
     CREATE (m:CognitiveMemory)
     SET m = $properties
-    RETURN m
+    RETURN m {
+        .*, 
+        embedding: null
+    } as m
     """
     memory_result = tx.run(create_query, properties=properties).single()
     
@@ -685,12 +688,15 @@ def get_similar_memories(tx: ManagedTransaction, text: str, limit: int = 5) -> L
     query = """
     MATCH (m:CognitiveMemory)
     WHERE m.importance >= 0.7
-    RETURN m
+    RETURN m {
+        .*, 
+        embedding: null
+    } as m
     ORDER BY m.created_at DESC
     LIMIT $limit
     """
     result = tx.run(query, limit=limit)
-    return [_neo4j_to_cognitive_memory(record["m"]) for record in result]
+    return [record["m"] for record in result]
 
 def get_memory_by_id(tx, memory_id: UUID) -> Optional[CognitiveMemory]:
     """

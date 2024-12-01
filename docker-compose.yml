@@ -14,20 +14,29 @@ services:
     restart: unless-stopped
     networks:
       - smile-network
+  
+  postgres:
+    image: postgres:latest
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=smile_checkpoints
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - smile-network
 
   backend:
     build: 
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8002:8002"
+      - "8002:8000"
     env_file:
       - .env
-    
-    volumes:
-      # Development hot-reload
-      # Checkpoints persistence
-      - ./backend/checkpoints:/checkpoints
        
     networks:
       - smile-network
@@ -42,7 +51,22 @@ services:
     depends_on:
       - backend
     environment:
-      - BACKEND_URL=http://backend:8002
+      - BACKEND_URL=http://backend:8000
+    networks:
+      - smile-network
+    restart: unless-stopped
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+      - PGADMIN_LISTEN_PORT=80
+    ports:
+      - "5050:80" 
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      - postgres
     networks:
       - smile-network
     restart: unless-stopped
@@ -51,20 +75,27 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    env_file:
+      - .env
     ports:
       - "3001:3000"
     environment:
+      - SMILES_API_URL=http://backend:8000
       - NODE_ENV=production
     depends_on:
       - backend
     networks:
       - smile-network
     restart: unless-stopped
-    
+
 networks:
   smile-network:
     driver: bridge
 # Named volumes for persistence
 volumes:
   checkpoints:
+    driver: local
+  postgres-data:
+    driver: local
+  pgadmin-data:
     driver: local

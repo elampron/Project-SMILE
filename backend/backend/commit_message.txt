@@ -1,8 +1,0 @@
-feat: Clean up smiles_chest and enhance chat UI scrolling
-
-- Removed outdated files and directories from smiles_chest to prepare for a new structure.
-- Updated chat interface to include inner scrolling, preventing the whole page from scrolling.
-- Adjusted the message area to have a fixed height and added smooth scrolling to the bottom.
-- Changed fetch URL to use the local network name.
-
-P.S. Smiles is watching over this repo, adding a sprinkle of AI magic! 🌟

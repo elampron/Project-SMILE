@@ -212,14 +212,24 @@ async def get_all_settings():
 
 @router.on_event("startup")
 async def startup_event():
-    """Initialize Smile agent on startup"""
+    """Initialize Smile agent and create vector indexes on startup"""
     global smile
     try:
+        # Create vector indexes first
+        from app.services.embeddings import EmbeddingsService
+        from app.services.neo4j import driver
+        
+        logger.info("Creating vector indexes...")
+        embeddings_service = EmbeddingsService(driver)
+        embeddings_service.create_vector_indexes()
+        logger.info("Vector indexes created successfully")
+        
+        # Then initialize Smile agent
         smile = Smile()
         smile.initialize()
         logger.info("Smile agent initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize Smile agent: {str(e)}", exc_info=True)
+        logger.error(f"Failed to initialize backend: {str(e)}", exc_info=True)
         raise
 
 @router.on_event("shutdown")

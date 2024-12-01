@@ -1,4 +1,4 @@
--- database: ../checkpoints/smile.db
+-- database: ../backend/checkpoints/smile.db
 SELECT 'Starting checkpoint cleanup operation' AS log_message;
 -- Delete checkpoints that are not in the latest 3 per thread_id
 DELETE FROM checkpoints 

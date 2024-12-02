@@ -215,7 +215,7 @@ def create_summary_node(tx, summary: ConversationSummary):
 def create_summary_relationships(tx, summary: ConversationSummary):
     """
     Create relationships between Summary node and its related nodes in Neo4j.
-    Handles participants, action items, and sentiments.
+    Handles participants, action items, sentiments, topics, and entities.
     """
     # Create relationships to participants
     for participant in summary.participants:
@@ -232,6 +232,46 @@ def create_summary_relationships(tx, summary: ConversationSummary):
         CREATE (s)-[:INVOLVES]->(p)
         """
         tx.run(relationship_query, summary_id=str(summary.id), name=participant_name)
+    
+    # Create relationships for topics
+    for topic in summary.topics:
+        # Merge topic node
+        topic_query = """
+        MERGE (t:Topic {name: $name})
+        RETURN t
+        """
+        tx.run(topic_query, name=topic)
+        # Create relationship
+        relationship_query = """
+        MATCH (s:Summary {id: $summary_id}), (t:Topic {name: $name})
+        MERGE (s)-[:COVERS_TOPIC]->(t)
+        """
+        tx.run(relationship_query, summary_id=str(summary.id), name=topic)
+    
+    # Create relationships for entities (from participants and events)
+    entities = set()
+    # Add participants as entities
+    for participant in summary.participants:
+        entities.add(participant.name)
+    # Extract entities from events (assuming they are mentioned in events)
+    for event in summary.events:
+        # You might want to use NER here to extract entities from events
+        # For now, we'll just add the event text as an entity
+        entities.add(event)
+    
+    for entity in entities:
+        # Merge entity node
+        entity_query = """
+        MERGE (e:Entity {name: $name})
+        RETURN e
+        """
+        tx.run(entity_query, name=entity)
+        # Create relationship
+        relationship_query = """
+        MATCH (s:Summary {id: $summary_id}), (e:Entity {name: $name})
+        MERGE (s)-[:MENTIONS_ENTITY]->(e)
+        """
+        tx.run(relationship_query, summary_id=str(summary.id), name=entity)
     
     # Create relationships for action items
     for action_item in summary.action_items:

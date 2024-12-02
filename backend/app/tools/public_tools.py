@@ -8,6 +8,8 @@ from langchain_community.tools.file_management import (
     WriteFileTool,
 )
 from langchain_community.tools.file_management.list_dir import ListDirectoryTool
+from langchain_community.agent_toolkits.github.toolkit import GitHubToolkit
+from langchain_community.utilities.github import GitHubAPIWrapper
 from app.configs.settings import settings
 
 

@@ -2,9 +2,6 @@ import { Suspense } from 'react'
 import ChatInterface from './components/ChatInterface'
 
 // Server Component
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
-
 export default async function Home() {
   return (
     <div className="flex flex-col h-screen bg-black text-green-500 font-mono">

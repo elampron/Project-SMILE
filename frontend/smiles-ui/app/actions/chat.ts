@@ -23,23 +23,18 @@ export async function getMessages(threadId: string, numMessages: number): Promis
         cache: 'no-store',
         headers: {
           'Content-Type': 'application/json',
-        },
-        next: {
-          revalidate: 0
         }
       }
     )
     
     if (!response.ok) {
-      console.error(`Failed to fetch messages: ${response.status} ${response.statusText}`)
-      return []
+      throw new Error(`Failed to fetch messages: ${response.status} ${response.statusText}`)
     }
 
     const data = await response.json()
     
     if (data.status !== 'success' || !Array.isArray(data.data)) {
-      console.error('Invalid response format:', data)
-      return []
+      throw new Error(data.message || 'Invalid response format')
     }
 
     return data.data.map((msg: any) => ({
@@ -50,7 +45,7 @@ export async function getMessages(threadId: string, numMessages: number): Promis
     }))
   } catch (error) {
     console.error('Error fetching messages:', error)
-    return []
+    throw new Error('Failed to fetch messages. Please try again later.')
   }
 }
 

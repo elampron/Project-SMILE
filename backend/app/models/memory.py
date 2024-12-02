@@ -460,26 +460,70 @@ class PreferenceExtractorResponse(BaseModel):
     }
     preferences: List[PreferenceResponse]
 
-class Document(BaseModel):
+class DocumentType(str, Enum):
+    """Core document types for SMILE system.
+    Note: This is an extensible list - AI can create new types as needed."""
+    DOCUMENTATION = "Documentation"  # System or process documentation
+    WEB_SUMMARY = "Web Summary"  # Summarized web content
+    TASK_GUIDE = "Task Guide"  # How-to guides and instructions
+    DATA_FILE = "Data File"  # Structured data files
+    SCREENSHOT = "Screenshot"  # Screen captures
+    PICTURE = "Picture"  # Images and photos
+    DIAGRAM = "Diagram"  # Visual representations and charts
+    CONVERSATION = "Conversation"  # Saved chat or discussion
+    NOTE = "Note"  # Quick notes or memos
+    PLAN = "Plan"  # Project or task plans
+    REPORT = "Report"  # Analysis or status reports
+    CODE = "Code"  # Code snippets or scripts
+    TEMPLATE = "Template"  # Reusable document templates
+    OTHER = "Other"  # For custom types not in core list
+
+class SmileDocument(BaseModel):
     """
-    Model representing a document stored in the library.
+    Model representing a document stored in the SMILE library.
     
     Attributes:
         id (UUID): Unique identifier for the document
         name (str): Name of the document (including extension)
+        doc_type (str): Type of document (from DocumentType or custom)
         content (str): Content of the document
-        file_url (str): URL/path to the document file
+        file_path (str): Relative path within library folder
+        file_url (str): Absolute URL/path to the document file
+        file_type (str): File extension/type (e.g., md, txt, png)
+        topics (List[str]): List of topics covered in document
+        entities (List[str]): Named entities mentioned in document
         created_at (datetime): When the document was created
         updated_at (Optional[datetime]): When the document was last updated
+        created_by (Optional[str]): User or agent who created the document
+        last_accessed_at (Optional[datetime]): When document was last accessed
+        access_count (int): Number of times document was accessed
+        version (int): Document version number
+        language (str): Document language
+        summary (Optional[str]): Brief summary of content
+        status (str): Document status (e.g., draft, final)
+        tags (List[str]): Custom tags for categorization
         embedding (Optional[List[float]]): Vector embedding for similarity search
-        metadata (Dict[str, Any]): Additional metadata about the document
+        metadata (Dict[str, Any]): Additional flexible metadata
     """
     id: UUID = Field(default_factory=uuid4)
     name: str
+    doc_type: str
     content: str
+    file_path: str
     file_url: str
+    file_type: str
+    topics: List[str] = Field(default_factory=list)
+    entities: List[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
+    created_by: Optional[str] = None
+    last_accessed_at: Optional[datetime] = None
+    access_count: int = Field(default=0)
+    version: int = Field(default=1)
+    language: str = Field(default="en")
+    summary: Optional[str] = None
+    status: str = Field(default="draft")
+    tags: List[str] = Field(default_factory=list)
     embedding: Optional[List[float]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -489,14 +533,55 @@ class Document(BaseModel):
             UUID: lambda v: str(v)
         }
 
+    def increment_access(self):
+        """Update access metadata when document is accessed."""
+        self.access_count += 1
+        self.last_accessed_at = datetime.utcnow()
+
     def to_embedding_text(self) -> str:
         """Generate text representation for embedding."""
         components = [
             self.name,
+            self.doc_type,
             self.content,
+            self.summary or "",
+            " ".join(self.topics),
+            " ".join(self.entities),
+            " ".join(self.tags),
             " ".join(f"{k}:{v}" for k, v in self.metadata.items())
         ]
         return " ".join(filter(None, components))
+
+    @property
+    def relationships(self) -> List[Dict[str, str]]:
+        """Define potential relationships for Neo4j."""
+        rels = []
+        
+        # Topic relationships
+        for topic in self.topics:
+            rels.append({
+                "from": f"Document:{self.id}",
+                "to": f"Topic:{topic}",
+                "type": "COVERS_TOPIC"
+            })
+        
+        # Entity relationships
+        for entity in self.entities:
+            rels.append({
+                "from": f"Document:{self.id}",
+                "to": f"Entity:{entity}",
+                "type": "MENTIONS_ENTITY"
+            })
+        
+        # Creator relationship
+        if self.created_by:
+            rels.append({
+                "from": f"Document:{self.id}",
+                "to": f"Person:{self.created_by}",
+                "type": "CREATED_BY"
+            })
+        
+        return rels
 
 class ConfidenceLevel(float, Enum):
     """Enumeration of confidence levels with semantic meaning."""

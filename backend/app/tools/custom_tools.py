@@ -1,11 +1,98 @@
 import subprocess
 import logging
 from langchain_core.tools import BaseTool, StructuredTool, tool
-from typing import Optional
+from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
+import os
+from datetime import datetime
+from app.models.memory import Document
+from app.services.neo4j import driver
+from app.services.embeddings import EmbeddingsService
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Define schema for document saving
+class DocumentSaveSchema(BaseModel):
+    name: str = Field(description="Name of the document (including extension)")
+    content: str = Field(description="Content to save in the document")
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Optional metadata about the document")
+
+@tool
+def save_document(name: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    """Save content to a document in the library and create a corresponding node in Neo4j.
+    
+    Args:
+        name (str): Name of the document (including extension)
+        content (str): Content to save in the document
+        metadata (Optional[Dict[str, Any]]): Optional metadata about the document
+    
+    Returns:
+        str: URL/path to the saved document
+    """
+    try:
+        # Create library directory if it doesn't exist
+        library_path = os.path.join(os.getcwd(), "library")
+        os.makedirs(library_path, exist_ok=True)
+        
+        # Create file path
+        file_path = os.path.join(library_path, name)
+        file_url = os.path.abspath(file_path)
+        
+        # Create document model
+        doc = Document(
+            name=name,
+            content=content,
+            file_url=file_url,
+            metadata=metadata or {},
+            updated_at=datetime.utcnow()
+        )
+        
+        # Generate embedding
+        doc.embedding = EmbeddingsService().generate_embedding(doc.to_embedding_text())
+        
+        # Save content to file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        # Create Neo4j node
+        with driver.session() as session:
+            session.execute_write(lambda tx: tx.run("""
+                CREATE (d:Document {
+                    id: $id,
+                    name: $name,
+                    file_url: $file_url,
+                    created_at: $created_at,
+                    updated_at: $updated_at,
+                    metadata: $metadata
+                })
+                """,
+                id=str(doc.id),
+                name=doc.name,
+                file_url=doc.file_url,
+                created_at=doc.created_at.isoformat(),
+                updated_at=doc.updated_at.isoformat() if doc.updated_at else None,
+                metadata=doc.metadata
+            ))
+            
+            # Create embedding vector
+            if doc.embedding:
+                session.execute_write(lambda tx: tx.run("""
+                    MATCH (d:Document {id: $id})
+                    CALL db.create.setVectorProperty(d, 'embedding', $embedding)
+                    RETURN d
+                    """,
+                    id=str(doc.id),
+                    embedding=doc.embedding
+                ))
+        
+        logger.info(f"Document saved successfully: {file_url}")
+        return file_url
+        
+    except Exception as e:
+        error_msg = f"Error saving document: {str(e)}"
+        logger.error(error_msg)
+        raise Exception(error_msg)
 
 # Define schema for Python execution tool
 class PythonExecuteSchema(BaseModel):

@@ -460,6 +460,43 @@ class PreferenceExtractorResponse(BaseModel):
     }
     preferences: List[PreferenceResponse]
 
+class Document(BaseModel):
+    """
+    Model representing a document stored in the library.
+    
+    Attributes:
+        id (UUID): Unique identifier for the document
+        name (str): Name of the document (including extension)
+        content (str): Content of the document
+        file_url (str): URL/path to the document file
+        created_at (datetime): When the document was created
+        updated_at (Optional[datetime]): When the document was last updated
+        embedding (Optional[List[float]]): Vector embedding for similarity search
+        metadata (Dict[str, Any]): Additional metadata about the document
+    """
+    id: UUID = Field(default_factory=uuid4)
+    name: str
+    content: str
+    file_url: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None
+    embedding: Optional[List[float]] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+            UUID: lambda v: str(v)
+        }
+
+    def to_embedding_text(self) -> str:
+        """Generate text representation for embedding."""
+        components = [
+            self.name,
+            self.content,
+            " ".join(f"{k}:{v}" for k, v in self.metadata.items())
+        ]
+        return " ".join(filter(None, components))
 
 class ConfidenceLevel(float, Enum):
     """Enumeration of confidence levels with semantic meaning."""

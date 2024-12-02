@@ -70,7 +70,7 @@ prometheus-client
 prompt-toolkit
 propcache
 psycopg-pool
-psycopg
+psycopg[binary]
 ptyprocess
 pure-eval
 pydantic-core

@@ -13,7 +13,7 @@ from app.configs.settings import settings
 from app.tools.public_tools import web_search_tool, file_tools
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.postgres import PostgresSaver
-from app.tools.custom_tools import execute_python, execute_cmd  # Importing both custom tools
+from app.tools.custom_tools import execute_python, execute_cmd, save_document  # Add save_document import
 from app.utils.llm import llm_factory, prepare_conversation_data
 from app.models.agents import AgentState, User
 from app.services.neo4j import create_or_update_user, get_or_create_person_entity
@@ -198,7 +198,8 @@ class Smile:
             web_search_tool,
             *file_tools,
             execute_python,
-            execute_cmd
+            execute_cmd,
+            save_document  # Add save_document tool
         ]
           # Define a new graph
         workflow = StateGraph(AgentState)

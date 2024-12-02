@@ -35,9 +35,16 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8002:8000"
-    env_file:
-      - .env
-       
+    environment:
+      - BACKEND_URL=http://backend:8000
+      # Add your API keys and tokens in .env file
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_NUMBER=${TWILIO_NUMBER}
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
     networks:
       - smile-network
     restart: unless-stopped
@@ -55,6 +62,7 @@ services:
     networks:
       - smile-network
     restart: unless-stopped
+
   pgadmin:
     image: dpage/pgadmin4
     environment:
@@ -75,13 +83,11 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    env_file:
-      - .env
     ports:
       - "3001:3000"
     environment:
       - SMILES_API_URL=http://backend:8000
-      - NODE_ENV=production
+      
     depends_on:
       - backend
     networks:
@@ -91,6 +97,7 @@ services:
 networks:
   smile-network:
     driver: bridge
+
 # Named volumes for persistence
 volumes:
   checkpoints:

@@ -31,7 +31,7 @@ neo4j_config:
   uri: bolt://neo4j:7687
   username: neo4j
 postgres_config:
-  conn: postgresql://postgres:postgres@localhost:5432/smile_checkpoints
+  conn: postgresql://postgres:postgres@postgres:5432/smile_checkpoints
 project_info:
   project_description: Project-SMILES
   project_name: Project-SMILE

@@ -1,8 +1,8 @@
 'use client'
 
 import React, { useState, useRef, useCallback } from 'react'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from './ui/button'
+import { Textarea } from './ui/textarea'
 import { sendMessage } from '../actions/chat'
 import { useRouter } from 'next/navigation'
 

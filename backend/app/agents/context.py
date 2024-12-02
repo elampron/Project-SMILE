@@ -119,7 +119,7 @@ class ContextManager:
         """
         query = """
         MATCH (p:Preference)
-        WHERE p.importance >= 4
+        WHERE p.importance > 4
         RETURN p {
             .*, 
             embedding: null
@@ -174,7 +174,7 @@ class ContextManager:
             fallback_query = """
             MATCH (p:Preference)
             WHERE NOT p.id IN $exclude_ids
-                AND p.importance < 4
+                AND p.importance < 5
             RETURN p {
                 .*, 
                 embedding: null

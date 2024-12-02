@@ -170,3 +170,4 @@ neo4j-data/
 checkpoints/
 backend/smiles_chest/
 app_config.yaml
+docker-compose-local.yml

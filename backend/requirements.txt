@@ -104,3 +104,5 @@ uvicorn
 wcwidth
 werkzeug
 yarl
+duckduckgo-search
+wikipedia

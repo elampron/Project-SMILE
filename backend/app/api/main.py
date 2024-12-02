@@ -83,20 +83,6 @@ async def track_requests(request: Request, call_next):
    
    return response
 # Create a dedicated endpoint for metrics that will show in Swagger
-@app.get("/metrics", tags=["Monitoring"], description="Get Prometheus metrics")
-async def metrics():
-    """
-    Returns Prometheus metrics for monitoring.
-    
-    This endpoint exposes various metrics like request counts and latencies
-    in Prometheus format for monitoring purposes.
-    
-    Returns:
-        Response: Prometheus metrics in text format
-    """
-    # TODO: Fix metrics endpoint. Returns 500 error.
-    return await make_asgi_app()(None, None, None)
-
 def run_app():
     """Run the FastAPI application synchronously."""
     uvicorn.run(

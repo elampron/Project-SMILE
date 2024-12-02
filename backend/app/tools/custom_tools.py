@@ -141,9 +141,7 @@ def save_document(
             if doc.embedding:
                 session.execute_write(lambda tx: tx.run("""
                     MATCH (d:Document {id: $id})
-                    CALL db.create.setVectorProperty(d, 'embedding', $embedding)
-                    YIELD node
-                    RETURN node
+                    CALL db.create.setNodeVectorProperty(d, 'embedding', $embedding)
                     """,
                     id=str(doc.id),
                     embedding=doc.embedding
@@ -151,15 +149,31 @@ def save_document(
             
             # Create relationships
             for rel in doc.relationships:
-                session.execute_write(lambda tx: tx.run("""
+                target_label = rel["to"].split(":")[0]
+                target_name = rel["to"].split(":")[1]
+                rel_type = rel["type"]
+                
+                # Create separate queries for each label type
+                if target_label == "Topic":
+                    query = """
                     MATCH (d:Document {id: $doc_id})
-                    MERGE (t:$target_label {name: $target_name})
-                    MERGE (d)-[r:$rel_type]->(t)
-                    """,
+                    MERGE (t:Topic {name: $target_name})
+                    MERGE (d)-[r:COVERS_TOPIC]->(t)
+                    """
+                elif target_label == "Entity":
+                    query = """
+                    MATCH (d:Document {id: $doc_id})
+                    MERGE (t:Entity {name: $target_name})
+                    MERGE (d)-[r:MENTIONS_ENTITY]->(t)
+                    """
+                else:
+                    logger.warning(f"Unsupported label type: {target_label}")
+                    continue
+                
+                session.execute_write(lambda tx: tx.run(
+                    query,
                     doc_id=str(doc.id),
-                    target_label=rel["to"].split(":")[0],
-                    target_name=rel["to"].split(":")[1],
-                    rel_type=rel["type"]
+                    target_name=target_name
                 ))
         
         logger.info(f"Document saved successfully: {doc.file_url}")

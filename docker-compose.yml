@@ -35,16 +35,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8002:8000"
-    environment:
-      - BACKEND_URL=http://backend:8000
-      # Add your API keys and tokens in .env file
-      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - TAVILY_API_KEY=${TAVILY_API_KEY}
-      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
-      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
-      - TWILIO_NUMBER=${TWILIO_NUMBER}
-      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    env_file:
+      - .env.docker
+
+    volumes:
+      - ./backend/library:/app/library
     networks:
       - smile-network
     restart: unless-stopped

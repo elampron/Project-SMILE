@@ -171,3 +171,6 @@ checkpoints/
 backend/smiles_chest/
 app_config.yaml
 docker-compose-local.yml
+postgres-data/
+
+.env.docker

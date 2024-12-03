@@ -174,3 +174,5 @@ docker-compose-local.yml
 postgres-data/
 
 .env.docker
+backend/credentials.json
+backend/token.json

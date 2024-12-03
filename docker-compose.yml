@@ -23,8 +23,9 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=smile_checkpoints
+      - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-data/data:/var/lib/postgresql/data
     restart: unless-stopped
     networks:
       - smile-network

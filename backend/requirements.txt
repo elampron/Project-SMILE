@@ -1,108 +1,19 @@
-aiohappyeyeballs
-aiohttp-retry
-aiohttp
-aiosignal
-aiosqlite
-annotated-types
-anthropic
-anyio
-asttokens
-attrs
-blinker
-certifi
-charset-normalizer
-click
-colorama
-dataclasses-json
-decorator
-defusedxml
-distro
-dnspython
-email-validator
-executing
-fastapi
-flask-ngrok
-flask
-frozenlist
-greenlet
-h11
-httpcore
-httpx-sse
-httpx
-idna
-ipython
-itsdangerous
-jedi
-jinja2
-jiter
-jsonpatch
-jsonpointer
-langchain-anthropic
-langchain-community
-langchain-core
-langchain-openai
-langchain-text-splitters
-langchain
-langgraph-checkpoint-postgres
-langgraph-checkpoint-sqlite
-langgraph-checkpoint
-langgraph-sdk
-langgraph
-langmem
-langsmith
-markdown-it-py
-markupsafe
-marshmallow
-matplotlib-inline
-mdurl
-msgpack
-multidict
-mypy-extensions
-neo4j
-ngrok
-numpy
-openai
-orjson
-packaging
-parso
-pexpect
-prometheus-client
-prompt-toolkit
-propcache
-psycopg-pool
-psycopg[binary]
-ptyprocess
-pure-eval
-pydantic-core
-pydantic-settings
-pydantic
-pydantic[email]
-pygments
-pyjwt
-pyngrok
-python-dotenv
-pytz
-pyyaml
-regex
-requests-toolbelt
-requests
-rich
-six
-sniffio
-sqlalchemy
-stack-data
-starlette
-tenacity
-tiktoken
-tqdm
-traitlets
-twilio
-typing-inspect
-tzdata
-urllib3
-uvicorn
-wcwidth
-werkzeug
-yarl
-duckduckgo-search
-wikipedia
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0  # PostgreSQL adapter
+python-dotenv>=1.0.0    # For loading .env files
+alembic>=1.12.0         # For database migrations
+
+# FastAPI
+fastapi>=0.100.0
+uvicorn>=0.22.0
+pydantic>=2.0.0
+
+# LangGraph
+langgraph>=0.0.15
+
+# Utilities
+python-jose[cryptography]>=3.3.0  # For JWT tokens
+passlib[bcrypt]>=1.7.4           # For password hashing
+python-multipart>=0.0.5          # For form data processing
+email-validator>=2.0.0           # For email validation

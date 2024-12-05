@@ -98,44 +98,11 @@ def save_document(
         
         # Create Neo4j nodes and relationships
         with driver.session() as session:
-            # Convert document to dictionary and handle special types
-            neo4j_properties = doc.model_dump()
+            # Create document node using existing method
+            doc_db_id = session.execute_write(create_entity_node, doc)
             
-            # Convert UUID to string
-            neo4j_properties['id'] = str(neo4j_properties['id'])
-            
-            # Convert datetime objects to ISO format strings
-            for field in ['created_at', 'updated_at', 'last_accessed_at']:
-                if neo4j_properties.get(field):
-                    neo4j_properties[field] = neo4j_properties[field].isoformat()
-            
-            # Convert metadata to JSON string
-            neo4j_properties['metadata'] = json.dumps(neo4j_properties.get('metadata', {}))
-            
-            # Create document node
-            session.execute_write(lambda tx: tx.run("""
-                CREATE (d:Document {
-                    id: $id,
-                    name: $name,
-                    doc_type: $doc_type,
-                    file_path: $file_path,
-                    file_url: $file_url,
-                    file_type: $file_type,
-                    topics: $topics,
-                    entities: $entities,
-                    created_at: $created_at,
-                    updated_at: $updated_at,
-                    created_by: $created_by,
-                    version: $version,
-                    language: $language,
-                    summary: $summary,
-                    status: $status,
-                    tags: $tags,
-                    metadata: $metadata
-                })
-                """,
-                **neo4j_properties
-            ))
+            # Update document with database ID
+            doc.db_id = doc_db_id
             
             # Create embedding vector
             if doc.embedding:
@@ -147,34 +114,9 @@ def save_document(
                     embedding=doc.embedding
                 ))
             
-            # Create relationships
-            for rel in doc.relationships:
-                target_label = rel["to"].split(":")[0]
-                target_name = rel["to"].split(":")[1]
-                rel_type = rel["type"]
-                
-                # Create separate queries for each label type
-                if target_label == "Topic":
-                    query = """
-                    MATCH (d:Document {id: $doc_id})
-                    MERGE (t:Topic {name: $target_name})
-                    MERGE (d)-[r:COVERS_TOPIC]->(t)
-                    """
-                elif target_label == "Entity":
-                    query = """
-                    MATCH (d:Document {id: $doc_id})
-                    MERGE (t:Entity {name: $target_name})
-                    MERGE (d)-[r:MENTIONS_ENTITY]->(t)
-                    """
-                else:
-                    logger.warning(f"Unsupported label type: {target_label}")
-                    continue
-                
-                session.execute_write(lambda tx: tx.run(
-                    query,
-                    doc_id=str(doc.id),
-                    target_name=target_name
-                ))
+            # Create relationships using existing method
+            for relationship in doc.get_relationships():
+                session.execute_write(create_entity_relationship, relationship)
         
         logger.info(f"Document saved successfully: {doc.file_url}")
         return doc.file_url

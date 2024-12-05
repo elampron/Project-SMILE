@@ -35,6 +35,14 @@ pygithub = "^2.5.0"
 playwright = "^1.49.0"
 lxml = "^5.3.0"
 langchain-google-community = {extras = ["gmail"], version = "^2.0.3"}
+sqlalchemy = "^2.0.36"
+psycopg2-binary = "^2.9.10"
+python-dotenv = "^1.0.1"
+alembic = "^1.14.0"
+email-validator = "^2.2.0"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.19"
 
 
 [build-system]

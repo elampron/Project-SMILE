@@ -7,9 +7,9 @@ from fastapi import FastAPI
 # Import CORSMiddleware to handle Cross-Origin Resource Sharing
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import the router from the app.api.routers module
+# Import the routers
 from app.api.routers import router
-
+from app.api.events_routes import router as events_router
 
 import uvicorn
 import logging
@@ -25,27 +25,47 @@ os.environ["LANGCHAIN_TRACING_V2"] = settings.app_config["langchain_config"]["tr
 os.environ["LANGCHAIN_ENDPOINT"] = settings.app_config["langchain_config"]["endpoint"]
 os.environ["LANGCHAIN_PROJECT"] = settings.app_config["langchain_config"]["project"]
 
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Create an instance of the FastAPI class
-app = FastAPI()
-
-# Include the router in the FastAPI app
-app.include_router(router)
-
-# Add middleware to handle CORS
-# This allows all origins, credentials, methods, and headers
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
-    allow_credentials=True,  # Allow credentials (cookies, authorization headers, etc.)
-    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
-    allow_headers=["*"],  # Allow all headers
+app = FastAPI(
+    title="Project SMILE API",
+    description="API for Project SMILE with event system integration",
+    version="1.0.0"
 )
 
+# Include the routers
+app.include_router(router)
+app.include_router(events_router, prefix="/api/v1")
+
+# Add middleware to handle CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Initialize necessary components on startup
+    """
+    logger.info("Initializing application...")
+    # Add any initialization code here
+    logger.info("Application initialized successfully")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    Clean up resources on shutdown
+    """
+    logger.info("Shutting down application...")
+    # Add any cleanup code here
+    logger.info("Application shut down successfully")
 
 if __name__ == "__main__":
     logger.info("Starting server on host: 0.0.0.0, port: 8000")

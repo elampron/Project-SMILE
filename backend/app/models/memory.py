@@ -478,13 +478,14 @@ class DocumentType(str, Enum):
     TEMPLATE = "Template"  # Reusable document templates
     OTHER = "Other"  # For custom types not in core list
 
-class SmileDocument(BaseModel):
+class SmileDocument(BaseEntity):
     """
     Model representing a document stored in the SMILE library.
     
     Attributes:
         id (UUID): Unique identifier for the document
         name (str): Name of the document (including extension)
+        type (str): Type of entity, fixed as 'Document'
         doc_type (str): Type of document (from DocumentType or custom)
         content (str): Content of the document
         file_path (str): Relative path within library folder
@@ -505,8 +506,7 @@ class SmileDocument(BaseModel):
         embedding (Optional[List[float]]): Vector embedding for similarity search
         metadata (Dict[str, Any]): Additional flexible metadata
     """
-    id: UUID = Field(default_factory=uuid4)
-    name: str
+    type: Literal["Document"] = Field(default="Document", description="Type of entity, fixed as 'Document'")
     doc_type: str
     content: str
     file_path: str
@@ -514,8 +514,6 @@ class SmileDocument(BaseModel):
     file_type: str
     topics: List[str] = Field(default_factory=list)
     entities: List[str] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: Optional[datetime] = None
     created_by: Optional[str] = None
     last_accessed_at: Optional[datetime] = None
     access_count: int = Field(default=0)
@@ -524,14 +522,7 @@ class SmileDocument(BaseModel):
     summary: Optional[str] = None
     status: str = Field(default="draft")
     tags: List[str] = Field(default_factory=list)
-    embedding: Optional[List[float]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            UUID: lambda v: str(v)
-        }
 
     def increment_access(self):
         """Update access metadata when document is accessed."""
@@ -552,36 +543,33 @@ class SmileDocument(BaseModel):
         ]
         return " ".join(filter(None, components))
 
-    @property
-    def relationships(self) -> List[Dict[str, str]]:
-        """Define potential relationships for Neo4j."""
-        rels = []
+    def get_relationships(self) -> List[Relationship]:
+        """Get relationships for Neo4j as Relationship objects."""
+        relationships = []
         
         # Topic relationships
         for topic in self.topics:
-            rels.append({
-                "from": f"Document:{self.id}",
-                "to": f"Topic:{topic}",
-                "type": "COVERS_TOPIC"
-            })
+            relationships.append(
+                Relationship(
+                    from_entity_id=self.id,
+                    to_entity_id=uuid4(),  # Temporary ID for the topic
+                    type=RelationshipType.COVERS_TOPIC,
+                    notes=f"Document covers topic: {topic}"
+                )
+            )
         
         # Entity relationships
         for entity in self.entities:
-            rels.append({
-                "from": f"Document:{self.id}",
-                "to": f"Entity:{entity}",
-                "type": "MENTIONS_ENTITY"
-            })
+            relationships.append(
+                Relationship(
+                    from_entity_id=self.id,
+                    to_entity_id=uuid4(),  # Temporary ID for the entity
+                    type=RelationshipType.MENTIONS_ENTITY,
+                    notes=f"Document mentions entity: {entity}"
+                )
+            )
         
-        # Creator relationship
-        if self.created_by:
-            rels.append({
-                "from": f"Document:{self.id}",
-                "to": f"Person:{self.created_by}",
-                "type": "CREATED_BY"
-            })
-        
-        return rels
+        return relationships
 
 class ConfidenceLevel(float, Enum):
     """Enumeration of confidence levels with semantic meaning."""

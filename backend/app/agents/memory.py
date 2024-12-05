@@ -8,7 +8,7 @@ from typing import List, Dict, Optional, Tuple
 from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, AIMessage
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from app.configs.settings import settings
 from app.utils.examples import get_summary_examples, get_entity_extraction_examples, get_preference_extraction_examples,get_cognitive_memory_examples
 from app.utils.llm import llm_factory, prepare_conversation_data
@@ -62,8 +62,10 @@ class SmileMemory:
         self.settings = settings
         self.logger = logger
 
-        self.checkpoint_path = settings.app_config.get("checkpoint_path")
-        self.current_state = None
+        self.postgres_url = settings.app_config.get("postgres_config")["conn"]
+        self._checkpointer = None
+        self._initialized = False
+        self._saver = None
         self.graph = None
         self.embeddings_service = EmbeddingsService(driver)
         
@@ -76,6 +78,63 @@ class SmileMemory:
                 logger.error(f"Failed to initialize schema: {str(e)}")
                 raise
       
+
+    def initialize(self):
+        """Initialize PostgreSQL checkpointer and set up tables."""
+        try:
+            if not self._initialized:
+                try:
+                    self.logger.info(f"Connecting to PostgreSQL at {self.postgres_url}...")
+                    
+                    # Create direct connection with optimized settings
+                    from psycopg import Connection
+                    conn = Connection.connect(
+                        self.postgres_url,
+                        autocommit=True,
+                        prepare_threshold=None,  # Disable prepared statements
+                        options="-c synchronous_commit=off"  # Optimize for performance
+                    )
+                    
+                    # Create saver with the connection and use it directly as checkpointer
+                    self._checkpointer = PostgresSaver(conn)
+                    
+                    # Setup tables using the checkpointer
+                    self._checkpointer.setup()
+                    self.logger.info("PostgreSQL tables created successfully")
+                    self.logger.info("Successfully connected to PostgreSQL")
+                except Exception as pg_error:
+                    self.logger.error(
+                        "Failed to connect to PostgreSQL. Please ensure:\n"
+                        "1. PostgreSQL is running\n"
+                        "2. The connection string in app_config.yaml is correct\n"
+                        "3. If running locally, use 'localhost' instead of 'postgres' as the host\n"
+                        f"Error details: {str(pg_error)}"
+                    )
+                    raise
+                
+                self._initialized = True
+            
+            return self
+        except Exception as e:
+            self.logger.error(f"Error during initialization: {str(e)}", exc_info=True)
+            if hasattr(self, '_checkpointer') and hasattr(self._checkpointer, 'conn'):
+                try:
+                    self._checkpointer.conn.close()
+                except Exception:
+                    pass
+            raise
+
+    def cleanup(self):
+        """Cleanup PostgreSQL resources."""
+        if self._saver and self._initialized:
+            try:
+                self._saver.__exit__(None, None, None)
+                self._initialized = False
+                self._checkpointer = None
+                self._saver = None
+            except Exception as e:
+                self.logger.error(f"Error during cleanup: {str(e)}")
+                raise
 
     def initialise_entity_extractor(self):
         self.entity_extractor_llm = llm_factory(self.settings, "entity_extractor_agent")
@@ -244,6 +303,10 @@ class SmileMemory:
 
     def execute_graph(self, state: AgentState, config: dict):
         """Execute the memory graph with async support."""
+        # Initialize if not already initialized
+        if not self._initialized:
+            self.initialize()
+            
         self.initialise_entity_extractor()
         self.initialise_preference_extractor()
         self.initialise_conversation_summarizer()
@@ -254,9 +317,7 @@ class SmileMemory:
         graph_builder.set_entry_point("extractor")
         graph_builder.add_edge("extractor", END)
         
-        with SqliteSaver.from_conn_string(conn_string=self.checkpoint_path) as checkpointer:
-            self.graph = graph_builder.compile(checkpointer=checkpointer)   
-            response = self.graph.invoke(state, config=config)
+        response = self.graph.invoke(state, config=config)
         
         return response
 

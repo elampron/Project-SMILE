@@ -111,7 +111,8 @@ class SmileMemory:
                         f"Error details: {str(pg_error)}"
                     )
                     raise
-                
+                if self.graph is None:
+                    self._initialize_graph()
                 self._initialized = True
             
             return self
@@ -160,6 +161,32 @@ class SmileMemory:
         self.cognitive_memory_extractor_prompt = PromptTemplate.from_template(self.settings.llm_config["cognitive_memory_extractor_agent"]["prompt_template"])
         self.cognitive_memory_extractor_llm = self.cognitive_memory_extractor_llm.with_structured_output(CognitiveMemory)
         self.cognitive_memory_extractor_chain = self.cognitive_memory_extractor_prompt | self.cognitive_memory_extractor_llm
+
+    def _initialize_graph(self):
+        """Initialize the agent graph with tools and checkpointer."""
+        self.logger.info("Initializing agent graph")
+        
+        
+          # Define a new graph
+        workflow = StateGraph(AgentState)
+
+        # Define the two nodes we will cycle between
+        workflow.add_node("extractor", self.extractor)
+
+        # Set the entrypoint as `agent`
+        # This means that this node is the first one called
+        workflow.set_entry_point("extractor")
+        workflow.add_edge("extractor", END)
+
+    # Finally, we compile it!
+    # This compiles it into a LangChain Runnable,
+        # meaning you can use it as you would any other runnable
+        self.graph=workflow.compile(
+            checkpointer=self._checkpointer,
+            interrupt_before=None,
+            interrupt_after=None,
+            debug=False,
+        )
 
     def process_entity_extraction_batch(self, messages: List[BaseMessage]):
         """

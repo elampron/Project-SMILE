@@ -49,7 +49,8 @@ class EmbeddingsService:
             ("Preference", "preference_vector", "embedding", 1536),  # OpenAI embedding dimension
             ("Summary", "summary_vector", "embedding", 1536),
             ("Person", "person_vector", "embedding", 1536),
-            ("Organization", "org_vector", "embedding", 1536)
+            ("Organization", "org_vector", "embedding", 1536),
+            ("Document", "document_vector", "embedding", 1536)
         ]
         
         with self.driver.session() as session:
@@ -160,3 +161,40 @@ class EmbeddingsService:
             except Exception as e:
                 logger.error(f"Error performing similarity search: {str(e)}")
                 raise 
+    
+    def create_document_node(self, content: str, metadata: Dict[str, Any]) -> None:
+        """
+        Create a document node with embeddings in Neo4j.
+        
+        Args:
+            content: Document content
+            metadata: Document metadata (filename, created_at, etc.)
+        """
+        try:
+            # Generate embedding for the document
+            embedding = self.generate_embedding(content)
+            
+            # Create document node with embedding
+            with self.driver.session() as session:
+                query = """
+                CREATE (d:Document {
+                    content: $content,
+                    filename: $filename,
+                    created_at: datetime($created_at),
+                    user_id: $user_id,
+                    embedding: $embedding
+                })
+                """
+                session.run(
+                    query,
+                    content=content,
+                    filename=metadata.get('filename'),
+                    created_at=metadata.get('created_at'),
+                    user_id=metadata.get('user_id'),
+                    embedding=embedding
+                )
+                logger.info(f"Created document node for {metadata.get('filename')}")
+                
+        except Exception as e:
+            logger.error(f"Error creating document node: {str(e)}")
+            raise

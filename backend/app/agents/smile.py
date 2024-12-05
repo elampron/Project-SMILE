@@ -1,5 +1,5 @@
 import logging
-from typing import Annotated, Sequence, TypedDict, Dict
+from typing import Annotated, Sequence, TypedDict, Dict, List
 from typing_extensions import Literal
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -14,12 +14,15 @@ from app.tools.public_tools import web_search_tool, file_tools
 from langgraph.checkpoint.postgres import PostgresSaver
 from app.tools.custom_tools import execute_python, execute_cmd, save_document  # Add save_document import
 from app.utils.llm import llm_factory, prepare_conversation_data
-from app.models.agents import AgentState, User
+from app.models.agents import AgentState, User, Attachment, AttachmentType
 from app.services.neo4j import create_or_update_user, get_or_create_person_entity
 from app.services.neo4j import driver
 from app.agents.context import ContextManager
 from datetime import datetime
 import time
+from app.services.embeddings import EmbeddingsService
+from pathlib import Path
+import os
 
 
 
@@ -50,6 +53,65 @@ class Smile:
         self._initialized = False
         self._saver = None
         self.context_manager = ContextManager(driver)
+        self.embeddings_service = EmbeddingsService(driver)
+        
+        # Create attachments directory if it doesn't exist
+        self.attachments_dir = Path("library/attachments")
+        self.attachments_dir.mkdir(parents=True, exist_ok=True)
+
+    def save_document(self, content: str, filename: str) -> Attachment:
+        """
+        Save a document to the filesystem and create embeddings.
+        
+        Args:
+            content (str): The content of the document
+            filename (str): The name of the file
+            
+        Returns:
+            Attachment: The created attachment object
+            
+        Raises:
+            Exception: If there's an error saving the document
+        """
+        try:
+            self.logger.info(f"Saving document: {filename}")
+            
+            # Determine file path and MIME type
+            file_path = self.attachments_dir / filename
+            mime_type = AttachmentType.TEXT  # Default to text for now
+            
+            # Save file to disk
+            file_path.write_text(content)
+            
+            # Create embeddings and save to Neo4j
+            embedding_id = self.embeddings_service.create_document_node(
+                content=content,
+                metadata={
+                    "filename": filename,
+                    "created_at": datetime.now().isoformat(),
+                    "user_id": str(self.main_user.id) if hasattr(self, 'main_user') else None
+                }
+            )
+            
+            # Create attachment object
+            attachment = Attachment(
+                file_name=filename,
+                file_path=file_path,
+                mime_type=mime_type,
+                content=content,
+                metadata={
+                    "user_id": str(self.main_user.id) if hasattr(self, 'main_user') else None
+                },
+                embedding_id=embedding_id
+            )
+            
+            self.logger.info(f"Successfully saved document: {filename}")
+            return attachment
+            
+        except Exception as e:
+            self.logger.error(f"Error saving document {filename}: {str(e)}")
+            raise
+
     def initialize(self):
         """Synchronously initialize the agent graph and tools."""
         try:
@@ -284,18 +346,58 @@ class Smile:
             self.logger.error(f"Error retrieving conversation history: {str(e)}", exc_info=True)
             raise
 
-    def stream(self, message: str, config: Dict):
-        """Synchronous stream method."""
+    def stream(self, message: str, config: Dict, attachments: List[Attachment] = None) -> str:
+        """
+        Stream method that handles both message and attachments.
+        
+        Args:
+            message: The user's message
+            config: Configuration dictionary
+            attachments: Optional list of attachments for this run
+            
+        Yields:
+            str: Response chunks
+        """
         try:
+            # Initialize state with empty attachments list
             inputs = {
                 "messages": [("user", message)],
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "attachments": []  # Start with empty list
             }
+            
             if not self._initialized or not self._checkpointer:
                 self.initialize()
             if not config:
                 config = {"thread_id": "MainThread"}
 
+            # Add attachment content to the message if present
+            if attachments:
+                # Filter out None values and validate attachments
+                valid_attachments = [
+                    att for att in attachments 
+                    if att is not None and isinstance(att, Attachment)
+                ]
+                
+                if valid_attachments:
+                    # Add valid attachments to the state for this run
+                    inputs["attachments"] = valid_attachments
+                    
+                    # Add attachment content as system message for context
+                    attachment_context = "\n\nAttached files:\n"
+                    for attachment in valid_attachments:
+                        attachment_context += (
+                            f"\nFile: {attachment.file_name}\n"
+                            f"Type: {attachment.mime_type.value}\n"
+                            f"Content:\n{attachment.content}\n"
+                            f"---\n"
+                        )
+                    inputs["messages"].append(("system", attachment_context))
+                    self.logger.info(f"Added {len(valid_attachments)} valid attachments to context")
+                else:
+                    self.logger.warning("Received attachments list but no valid attachments found")
+
+            self.logger.info(f"Starting stream with {len(inputs['attachments'])} attachments")
             for msg, metadata in self.graph.stream(
                 inputs, 
                 stream_mode="messages",
@@ -390,6 +492,35 @@ class Smile:
             
         except Exception as e:
             self.logger.error(f"Error in format_for_model: {str(e)}", exc_info=True)
+            raise
+    
+    def save_document(self, content: str, filename: str) -> None:
+        """
+        Save a document to the vector store and create embeddings.
+        
+        Args:
+            content (str): The content of the document
+            filename (str): The name of the file
+            
+        Raises:
+            Exception: If there's an error saving the document
+        """
+        try:
+            self.logger.info(f"Saving document: {filename}")
+            
+            # Create embeddings and save to Neo4j
+            self.embeddings_service.create_document_node(
+                content=content,
+                metadata={
+                    "filename": filename,
+                    "created_at": datetime.now().isoformat(),
+                    "user_id": str(self.main_user.id) if hasattr(self, 'main_user') else None
+                }
+            )
+            
+            self.logger.info(f"Successfully saved document: {filename}")
+        except Exception as e:
+            self.logger.error(f"Error saving document {filename}: {str(e)}")
             raise
     
     

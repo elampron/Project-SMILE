@@ -41,7 +41,8 @@ export async function getMessages(threadId: string, numMessages: number): Promis
       content: msg.content || '',
       role: msg.role === 'human' ? 'user' : 'assistant',
       timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
-      thread_id: threadId
+      thread_id: threadId,
+      files: msg.files || []
     }))
   } catch (error) {
     console.error('Error fetching messages:', error)
@@ -51,51 +52,101 @@ export async function getMessages(threadId: string, numMessages: number): Promis
 
 /**
  * Sends a message to the chat backend and handles streaming response
+ * @param message The message text to send
+ * @param threadId The thread ID for the conversation
+ * @param files Optional array of files to upload
  */
-export async function sendMessage(message: string, threadId: string): Promise<ChatResponse> {
-  if (!message?.trim()) {
-    return { success: false, error: 'Message cannot be empty' }
+export async function sendMessage(
+  message: string, 
+  threadId: string,
+  files?: File[]
+): Promise<ChatResponse> {
+  if (!message?.trim() && (!files || files.length === 0)) {
+    return { success: false, error: 'Message and files cannot both be empty' }
   }
 
   try {
+    // Use JSON endpoint if no files, form-data if files exist
+    if (!files || files.length === 0) {
+      const response = await fetch(`${SMILES_API_URL}/chat/json`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: message.trim(),
+          thread_id: threadId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        return { 
+          success: false, 
+          error: `Request failed with status: ${response.status}. ${errorText}` 
+        };
+      }
+
+      if (!response.body) {
+        return { 
+          success: false, 
+          error: 'No response from server' 
+        };
+      }
+
+      return { 
+        success: true, 
+        stream: response.body 
+      };
+    }
+
+    // Handle file uploads with form-data
+    const formData = new FormData();
+    formData.append('message', message.trim());
+    formData.append('thread_id', threadId);
+    
+    files.forEach(file => {
+      formData.append('files', file, file.name);
+    });
+
+    console.log('Sending form data:', {
+      message: message.trim(),
+      threadId,
+      files: files.map(f => f.name)
+    });
+
     const response = await fetch(`${SMILES_API_URL}/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        message: message.trim(),
-        thread_id: threadId
-      }),
-    })
+      body: formData,
+    });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error response:', errorText);
       return { 
         success: false, 
-        error: `Request failed with status: ${response.status}` 
-      }
+        error: `Request failed with status: ${response.status}. ${errorText}` 
+      };
     }
 
     if (!response.body) {
       return { 
         success: false, 
         error: 'No response from server' 
-      }
+      };
     }
 
-    // Create a new stream from the response body
-    const stream = response.body
-
-    revalidatePath('/')
     return { 
       success: true, 
-      stream 
-    }
+      stream: response.body 
+    };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    console.error('Send message error:', error);
     return { 
       success: false, 
       error: errorMessage 
-    }
+    };
   }
 } 

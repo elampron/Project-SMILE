@@ -4,6 +4,7 @@ from marshmallow import ValidationError
 from pydantic import BaseModel, Field, model_validator, EmailStr
 from langgraph.graph import add_messages, StateGraph
 from uuid import UUID, uuid4
+from pathlib import Path
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessageChunk, ToolMessage, AIMessage
 from enum import Enum
@@ -13,6 +14,39 @@ import logging
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+
+class AttachmentType(str, Enum):
+    """Supported attachment types"""
+    TEXT = "text/plain"
+    PDF = "application/pdf"
+    HTML = "text/html"
+    MARKDOWN = "text/markdown"
+    # Add more types as needed
+
+
+class Attachment(BaseModel):
+    """
+    Model representing a file attachment.
+    
+    Attributes:
+        id: Unique identifier for the attachment
+        file_name: Original name of the file
+        file_path: Path where the file is stored in the library
+        mime_type: MIME type of the file
+        content: Extracted text content from the file
+        metadata: Additional metadata about the file
+        created_at: When the attachment was created
+        embedding_id: Optional ID of the embedding in Neo4j
+    """
+    id: UUID = Field(default_factory=uuid4)
+    file_name: str
+    file_path: Path
+    mime_type: AttachmentType
+    content: str
+    metadata: Dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    embedding_id: Optional[UUID] = None
 
 
 def add_summaries(left: List[ConversationSummary], right: List[ConversationSummary]) -> List[ConversationSummary]:
@@ -74,8 +108,20 @@ class User(BaseModel):
 
 
 class AgentState(BaseModel):
+    """
+    State model for the agent.
+    
+    Attributes:
+        messages: List of conversation messages
+        summaries: List of conversation summaries
+        attachments: List of file attachments for the current run
+        summary: Optional current summary
+        user_current_location: Optional user location
+        current_mood: Optional user mood
+    """
     messages: Annotated[list, add_messages]
     summaries: Annotated[List[ConversationSummary], add_summaries] = []
+    attachments: List[Attachment] = []  # Regular list for current run attachments
     summary: Optional[str] = None
     user_current_location: Optional[str] = None
     current_mood: Optional[str] = None

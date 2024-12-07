@@ -72,6 +72,16 @@ def create_entity_node(tx, entity):
         unique_props = {
             'name': properties['name']
         }
+    elif entity.type == 'Document':
+        unique_props = {
+            'name': properties['name'],
+            'doc_type': properties['doc_type'],
+            'file_path': properties['file_path']
+        }
+    else:
+        unique_props = {
+            'name': properties['name']
+        }
 
     # Remove properties that are not needed for the merge
     merge_properties = {k: v for k, v in unique_props.items() if v is not None}

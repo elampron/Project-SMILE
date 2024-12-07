@@ -33,6 +33,6 @@ neo4j_config:
 postgres_config:
   conn: postgresql://postgres:postgres@postgres:5432/smile_checkpoints
 project_info:
-  project_description: Project-SMILES
+  project_description: "A new and improved Project-SMILES"
   project_name: Project-SMILE
   project_version: 0.1.0

@@ -1,6 +1,7 @@
 import logging
 from typing import Annotated, Sequence, TypedDict, Dict, List
 from typing_extensions import Literal
+from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessageChunk, ToolMessage, AIMessage
@@ -9,7 +10,7 @@ from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
-from app.configs.settings import settings
+from app.configs.settings import settings, Settings
 from app.tools.public_tools import web_search_tool, file_tools 
 from langgraph.checkpoint.postgres import PostgresSaver
 from app.tools.custom_tools import execute_python, execute_cmd, save_document  # Add save_document import
@@ -23,6 +24,8 @@ import time
 from app.services.embeddings import EmbeddingsService
 from pathlib import Path
 import os
+from langchain.tools import StructuredTool
+from pydantic import BaseModel
 
 
 
@@ -255,12 +258,27 @@ class Smile:
         """Initialize the agent graph with tools and checkpointer."""
         self.logger.info("Initializing agent graph")
         
+        # Create a schema for the reload tool
+        class ReloadSchema(BaseModel):
+            """Schema for the reload tool - no parameters needed"""
+            pass
+        
+        # Create a structured tool for reload
+        reload_tool = StructuredTool(
+            name="reload",
+            description="Reload Smile's configuration and reinitialize the agent",
+            func=lambda: self.reload(),
+            args_schema=ReloadSchema,
+            return_direct=True
+        )
+        
         self.tools = [
             web_search_tool,
             *file_tools,
             execute_python,
             execute_cmd,
-            save_document  # Add save_document tool
+            save_document,  # Add save_document tool
+            reload_tool  # Add reload tool as a StructuredTool
         ]
           # Define a new graph
         workflow = StateGraph(AgentState)
@@ -522,6 +540,42 @@ class Smile:
         except Exception as e:
             self.logger.error(f"Error saving document {filename}: {str(e)}")
             raise
+    
+    def reload(self) -> str:
+        """
+        Reload Smile's configuration and reinitialize the agent.
+        
+        This method reloads the configuration files and reinitializes the agent with the new settings.
+        Use this after making changes to configuration files to apply them without restarting the server.
+        
+        Returns:
+            str: Status message indicating success or failure
+        """
+        try:
+            self.logger.info("Reloading Smile configuration...")
+            
+            # Create new settings instance
+            new_settings = Settings()
+            self.settings = new_settings
+            
+            # Re-initialize main user
+            self._initialize_main_user()
+            
+            # Re-initialize basic attributes
+            self.chatbot_agent_llm = llm_factory(self.settings, "chatbot_agent")
+            self.chatbot_agent_prompt = PromptTemplate.from_template(self.settings.llm_config["chatbot_agent"]["prompt_template"])
+            self.embeddings_client = llm_factory(self.settings, "embeddings")
+            
+            # Re-initialize the agent
+            self.initialize()
+            
+            self.logger.info("Smile configuration reloaded successfully")
+            return "Configuration reloaded successfully"
+            
+        except Exception as e:
+            error_msg = f"Error reloading configuration: {str(e)}"
+            self.logger.error(error_msg)
+            raise Exception(error_msg)
     
     
 

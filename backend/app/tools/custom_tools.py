@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 import os
 from datetime import datetime
 from app.models.memory import SmileDocument, DocumentType
-from app.services.neo4j import driver
+from app.services.neo4j import driver, create_entity_node, create_entity_relationship
 from app.services.embeddings import EmbeddingsService
 import json
 

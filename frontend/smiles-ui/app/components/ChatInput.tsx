@@ -84,7 +84,10 @@ export default function ChatInput({ threadId }: ChatInputProps) {
         console.error('Error reading stream:', error)
       } finally {
         window.dispatchEvent(new CustomEvent('aiThinking', { detail: false }))
-        router.refresh()
+        // Add a small delay before refreshing to ensure database is updated
+        setTimeout(() => {
+          router.refresh()
+        }, 1000)
       }
     }
   }, [message, files, threadId, router])

@@ -14,6 +14,14 @@ export function MessageList({ initialMessages }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // Only update messages from initialMessages if we're not currently streaming
+    // This prevents duplicate messages during streaming
+    if (!isAiResponding && !currentAiMessage) {
+      setMessages(initialMessages)
+    }
+  }, [initialMessages, isAiResponding, currentAiMessage])
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, currentAiMessage])
 

@@ -8,7 +8,7 @@ export default async function Home() {
   return (
     <div className="flex flex-col h-screen bg-black text-green-500 font-mono">
       <header className="flex justify-center items-center p-4 border-b border-green-500">
-        <h1 className="text-3xl tracking-wider font-bold">S.M.I.L.E.</h1>
+        <h1 className="text-3xl tracking-wider font-bold">PIXEL</h1>
       </header>
       
       <Suspense fallback={

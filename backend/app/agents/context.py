@@ -7,6 +7,7 @@ management with methods to handle different types of context (preferences, entit
 summaries) and format them in a way that's optimal for LLM consumption.
 """
 
+import json
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -71,12 +72,17 @@ class ContextManager:
             relevant_summaries = self._get_relevant_summaries(user_input)
             relevant_memories = self._get_relevant_memories(user_input)
             recent_summaries = self._get_recent_summaries()
+            relevant_documents = self._get_relevant_documents(user_input)
             
             # Format the context
             context_parts = []
             
+            if relevant_documents:
+                context_parts.append("RELEVANT DOCUMENTS:")
+                context_parts.extend(self._format_documents(relevant_documents))
+            
             if important_preferences:
-                context_parts.append("IMPORTANT PREFERENCES:")
+                context_parts.append("\nIMPORTANT PREFERENCES:")
                 context_parts.extend(self._format_preferences(important_preferences))
             
             if relevant_preferences:
@@ -86,7 +92,6 @@ class ContextManager:
             if relevant_entities:
                 context_parts.append("\nRELEVANT ENTITIES:")
                 context_parts.extend(self._format_entities(relevant_entities))
-
             
             if relevant_memories:
                 context_parts.append("\nRELEVANT MEMORIES:")
@@ -485,6 +490,96 @@ class ContextManager:
         except Exception as e:
             logger.error(f"Error converting Neo4j node to ConversationSummary: {str(e)}")
             raise
+    
+    def _get_relevant_documents(self, user_input: str) -> List[Dict]:
+        """
+        Get documents relevant to the user's input using semantic search.
+        
+        Args:
+            user_input: The user's current question or comment
+            
+        Returns:
+            List[Dict]: List of relevant documents with their properties
+            
+        Note:
+            Documents are ordered by semantic similarity and include:
+            - Basic metadata (name, type, summary)
+            - Topics and entities
+            - File path for reference
+        """
+        try:
+            # Generate embedding for user input
+            query_embedding = self.embeddings_service.generate_embedding(user_input)
+            
+            # Use similarity search from embeddings service
+            results = self.embeddings_service.similarity_search(
+                query_embedding=query_embedding,
+                node_label="Document",
+                limit=3,  # Limit to top 3 most relevant documents
+                min_score=0.7
+            )
+            
+            # Convert results to proper format
+            documents = []
+            for result in results:
+                # Parse metadata from JSON string
+                metadata = json.loads(result.get('metadata', '{}'))
+                
+                doc = {
+                    'name': result.get('name'),
+                    'doc_type': result.get('doc_type'),
+                    'summary': result.get('summary'),
+                    'topics': result.get('topics', []),
+                    'entities': result.get('entities', []),
+                    'file_path': result.get('file_path'),
+                    'metadata': metadata
+                }
+                documents.append(doc)
+            
+            return documents
+                
+        except Exception as e:
+            logger.error(f"Error getting relevant documents: {str(e)}")
+            # Fallback to getting recent documents if semantic search fails
+            fallback_query = """
+            MATCH (d:Document)
+            RETURN d {
+                .*, 
+                embedding: null
+            } as d
+            ORDER BY d.created_at DESC
+            LIMIT 3
+            """
+            with self.driver.session() as session:
+                result = session.run(fallback_query)
+                documents = []
+                for record in result:
+                    doc = record["d"]
+                    metadata = json.loads(doc.get('metadata', '{}'))
+                    documents.append({
+                        'name': doc.get('name'),
+                        'doc_type': doc.get('doc_type'),
+                        'summary': doc.get('summary'),
+                        'topics': doc.get('topics', []),
+                        'entities': doc.get('entities', []),
+                        'file_path': doc.get('file_path'),
+                        'metadata': metadata
+                    })
+                return documents
+
+    def _format_documents(self, documents: List[Dict]) -> List[str]:
+        """Format documents for context inclusion."""
+        formatted = []
+        for doc in documents:
+            doc_info = [
+                f"- {doc['name']} ({doc['doc_type']})",
+                f"  Summary: {doc['summary'] if doc['summary'] else 'No summary available'}",
+                f"  Topics: {', '.join(doc['topics']) if doc['topics'] else 'None'}",
+                f"  Entities: {', '.join(doc['entities']) if doc['entities'] else 'None'}",
+                f"  Path: {doc['file_path']}"
+            ]
+            formatted.append("\n".join(doc_info))
+        return formatted
 
             
 if __name__ == "__main__":

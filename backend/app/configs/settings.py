@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: Optional[str] = None # Twilio account sid
     TWILIO_AUTH_TOKEN: Optional[str] = None # Twilio auth token
     NGROK_AUTHTOKEN: Optional[str] = None # Ngrok authtoken
+    XAI_API_KEY: Optional[str] = None # XAI API key
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
     app_config_path: str = os.path.join("app", "configs", "app_config.yaml")
     llm_config_path: str = os.path.join("app", "configs", "llm_config.yaml")

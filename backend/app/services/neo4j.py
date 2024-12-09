@@ -50,17 +50,10 @@ def create_entity_node(tx, entity):
         entity.embedding = embeddings_service.generate_embedding(text_for_embedding)
     
     labels = [entity.type]
-    properties = entity.dict()
+    properties = entity.model_dump()
 
-    # Convert UUID fields to strings
-    properties['id'] = str(properties['id'])
-
-    # Ensure datetime fields are strings in ISO format
-    properties['created_at'] = properties['created_at'].isoformat()
-    if properties.get('updated_at'):
-        properties['updated_at'] = properties['updated_at'].isoformat()
-    else:
-        properties['updated_at'] = None
+    # Convert all properties to Neo4j compatible format
+    properties = convert_properties_for_neo4j(properties)
 
     # Prepare unique properties based on entity type
     if entity.type == 'Person':

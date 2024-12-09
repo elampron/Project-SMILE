@@ -4,6 +4,7 @@ from uuid import uuid4
 from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
+from langchain_xai import ChatXAI
 
 def llm_factory(settings, llm_name: str):
         llm_config = settings.llm_config.get(llm_name)
@@ -15,6 +16,8 @@ def llm_factory(settings, llm_name: str):
                 llm = ChatOpenAI(api_key=settings.OPENAI_API_KEY, **params)
             elif provider == "anthropic":
                 llm = ChatAnthropic(api_key=settings.ANTHROPIC_API_KEY, **params)
+            elif provider == "xai":
+                llm = ChatXAI(api_key=settings.XAI_API_KEY, **params)
         else:
             raise ValueError(f"LLM config for {llm_name} not found")
 

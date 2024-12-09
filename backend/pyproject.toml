@@ -43,6 +43,7 @@ email-validator = "^2.2.0"
 python-jose = {extras = ["cryptography"], version = "^3.3.0"}
 passlib = {extras = ["bcrypt"], version = "^1.7.4"}
 python-multipart = "^0.0.19"
+langchain-xai = "^0.1.0"
 
 
 [build-system]

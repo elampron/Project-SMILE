@@ -571,6 +571,13 @@ class SmileDocument(BaseEntity):
         
         return relationships
 
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
+        """Override model_dump to convert metadata to JSON string."""
+        data = super().model_dump(*args, **kwargs)
+        if data.get('metadata'):
+            data['metadata'] = json.dumps(data['metadata'], cls=Neo4jEncoder)
+        return data
+
 class ConfidenceLevel(float, Enum):
     """Enumeration of confidence levels with semantic meaning."""
     CERTAIN = 1.0

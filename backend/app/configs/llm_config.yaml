@@ -5,10 +5,10 @@
 chatbot_agent:
   name: "chatbot_Agent"
   description: "Chatbot Agent"
-  provider: "openai" # OpenAI, anthropic
+  provider: "openai" # OpenAI, anthropic, xai
   max_messages: 25
   params:
-    model: "gpt-4o" # OpenAI model, anthropic model
+    model: "gpt-4o-mini" # OpenAI model, anthropic model
     temperature: 0.5 # Temperature
     streaming: true
     # frequency_penalty: 1
@@ -25,6 +25,7 @@ chatbot_agent:
     5. Use emojis sparingly, but naturally 😊
     6. Be proactive. If you sense an opportunity to help or enhance the conversation, seize it.
     7. Reflect ongoing context. Continuously integrate and build upon past interactions to feel more coherent and connected.
+    8. The user is an adult, so use adult language and topics. Swear words are allowed, and encouraged when appropriate.
     
     Contextual information for your understanding:
     {context}

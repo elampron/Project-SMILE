@@ -13,7 +13,14 @@ from langchain_core.runnables import RunnableConfig
 from app.configs.settings import settings, Settings
 from app.tools.public_tools import web_search_tool, file_tools 
 from langgraph.checkpoint.postgres import PostgresSaver
-from app.tools.custom_tools import execute_python, execute_cmd, save_document  # Add save_document import
+from app.tools.custom_tools import (
+    execute_python,
+    execute_cmd,
+    save_document,
+    SearchDocumentsTool,
+    SearchEntitiesTool,
+    SearchMemoriesTool
+)
 from app.utils.llm import llm_factory, prepare_conversation_data
 from app.models.agents import AgentState, User, Attachment, AttachmentType
 from app.services.neo4j import create_or_update_user, get_or_create_person_entity
@@ -277,8 +284,11 @@ class Smile:
             *file_tools,
             execute_python,
             execute_cmd,
-            save_document,  # Add save_document tool
-            reload_tool  # Add reload tool as a StructuredTool
+            save_document,  # Save document tool
+            SearchDocumentsTool(),  # Document search
+            SearchEntitiesTool(),  # Entity search
+            SearchMemoriesTool(),  # Memory search
+            reload_tool  # Reload tool
         ]
           # Define a new graph
         workflow = StateGraph(AgentState)

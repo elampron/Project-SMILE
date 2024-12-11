@@ -109,4 +109,5 @@ psycopg2-binary
 alembic
 passlib[bcrypt]
 email-validator
+langchain_xai
 

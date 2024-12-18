@@ -48,20 +48,24 @@ class LLM(llm.LLM):
         """
         await self._ensure_session()
         
-        # Convert LiveKit chat context to SMILES format
-        messages = [
-            {
-                "role": msg.role,
-                "content": msg.text
-            } 
-            for msg in chat_ctx.messages
-        ]
+        # Get the last message from the context
+        if not chat_ctx.messages:
+            yield "No message provided"
+            return
+            
+        last_message = chat_ctx.messages[-1]
+        
+        # Prepare request payload according to ChatRequest schema
+        payload = {
+            "message": last_message.text,
+            "thread_id": getattr(chat_ctx, 'thread_id', None)  # Use thread_id if available
+        }
         
         try:
             async with self.session.post(
-                f"{self.api_url}/chat",
+                f"{self.api_url}/chat/json",
                 headers=self._get_headers(),
-                json={"messages": messages}
+                json=payload
             ) as response:
                 response.raise_for_status()
                 
@@ -71,18 +75,7 @@ class LLM(llm.LLM):
                         try:
                             text = chunk.decode().strip()
                             if text:
-                                try:
-                                    # Try to parse as JSON first
-                                    data = json.loads(text)
-                                    # Extract the relevant text content based on the response structure
-                                    if "user_transcript" in data:
-                                        yield data["user_transcript"]
-                                    else:
-                                        # If it's a different type of JSON response, yield the whole JSON
-                                        yield json.dumps(data)
-                                except json.JSONDecodeError:
-                                    # If it's not JSON, yield the raw text
-                                    yield text
+                                yield text
                         except Exception as e:
                             logger.error(f"Error processing chunk: {e}")
                             continue

@@ -5,7 +5,7 @@ langchain_config:
   checkpoint_id: null
   endpoint: https://api.smith.langchain.com
   project: project-smile
-  thread_id: Testing-01
+  thread_id: Testing-02
   tracing_v2: 'true'
 log_config:
   log_file: ''

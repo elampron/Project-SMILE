@@ -512,8 +512,8 @@ class SmileDocument(BaseEntity):
     file_path: str
     file_url: str
     file_type: str
-    topics: List[str] = Field(default_factory=list)
-    entities: List[str] = Field(default_factory=list)
+    topics: List[str] = Field(default=[])
+    entities: List[str] = Field(default=[])
     created_by: Optional[str] = None
     last_accessed_at: Optional[datetime] = None
     access_count: int = Field(default=0)
@@ -521,8 +521,8 @@ class SmileDocument(BaseEntity):
     language: str = Field(default="en")
     summary: Optional[str] = None
     status: str = Field(default="draft")
-    tags: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    tags: List[str] = Field(default=[])
+    metadata: Dict[str, Any] = Field(default={})
 
     def increment_access(self):
         """Update access metadata when document is accessed."""

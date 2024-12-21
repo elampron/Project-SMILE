@@ -28,11 +28,11 @@ class SearchMemoriesInput(BaseModel):
     )
 
 class SearchMemoriesTool(BaseTool):
-    """Tool for searching cognitive memories in SMILE's knowledge base."""
+    """Tool for searching cognitive memories in Pixel's knowledge base."""
     
     name: ClassVar[str] = "search_memories"
     description: ClassVar[str] = """
-    Search for relevant memories in SMILE's knowledge base.
+    Search for relevant memories in Pixel's knowledge base.
     Use this tool when you need to:
     - Find memories related to a specific topic
     - Search for past experiences or learnings
@@ -103,8 +103,7 @@ class SearchMemoriesTool(BaseTool):
             # Build the search query
             cypher_query = """
             MATCH (m:CognitiveMemory)
-            WHERE ($importance IS NULL OR m.importance >= $importance)
-            WITH m, vector.similarity(m.embedding, $query_embedding) AS score
+            WITH m, vector.similarity.cosine($query_embedding, m.embedding) AS score
             WHERE score >= 0.7
             
             // Get related entities

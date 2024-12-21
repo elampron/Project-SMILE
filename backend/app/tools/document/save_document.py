@@ -19,11 +19,34 @@ class DocumentSaveSchema(BaseModel):
     name: str = Field(description="Name of the document (including extension)")
     content: str = Field(description="Content to save in the document")
     doc_type: str = Field(description="Type of document (e.g., Documentation, Web Summary, Task Guide)")
-    topics: Optional[List[str]] = Field(default=None, description="List of topics covered in document")
-    entities: Optional[List[str]] = Field(default=None, description="Named entities mentioned in document")
+    topics: Optional[List[str]] = Field(
+        default=None,
+        description="List of topics covered in document",
+        items={"type": "string", "description": "A topic covered in the document"}
+    )
+    entities: Optional[List[str]] = Field(
+        default=None,
+        description="Named entities mentioned in document",
+        items={"type": "string", "description": "A named entity mentioned in the document"}
+    )
     summary: Optional[str] = Field(default=None, description="Brief summary of content")
-    tags: Optional[List[str]] = Field(default=None, description="Custom tags for categorization")
-    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Optional metadata about the document")
+    tags: Optional[List[str]] = Field(
+        default=None,
+        description="Custom tags for categorization",
+        items={"type": "string", "description": "A tag for categorizing the document"}
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional metadata about the document",
+        properties={
+            "created_by": {"type": "string", "description": "Creator of the document"},
+            "created_at": {"type": "string", "description": "Creation timestamp"},
+            "version": {"type": "integer", "description": "Document version"},
+            "status": {"type": "string", "description": "Document status"},
+            "language": {"type": "string", "description": "Document language"},
+            "additional": {"type": "object", "description": "Any additional metadata"}
+        }
+    )
 
 @tool
 def save_document(

@@ -4,7 +4,10 @@ from uuid import uuid4
 from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_xai import ChatXAI
+from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 
 def llm_factory(settings, llm_name: str):
         llm_config = settings.llm_config.get(llm_name)
@@ -18,6 +21,14 @@ def llm_factory(settings, llm_name: str):
                 llm = ChatAnthropic(api_key=settings.ANTHROPIC_API_KEY, **params)
             elif provider == "xai":
                 llm = ChatXAI(api_key=settings.XAI_API_KEY, **params)
+            elif provider == "google":
+                llm = ChatGoogleGenerativeAI(api_key=settings.GOOGLE_API_KEY, **params)
+            elif provider == "groq":
+                llm = ChatGroq(api_key=settings.GROQ_API_KEY, **params)
+            elif provider == "ollama":
+                llm = ChatOllama(**params)
+            else:
+                raise ValueError(f"Invalid LLM provider: {provider}")
         else:
             raise ValueError(f"LLM config for {llm_name} not found")
 

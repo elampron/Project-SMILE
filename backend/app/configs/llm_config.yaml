@@ -5,11 +5,11 @@
 chatbot_agent:
   name: "chatbot_Agent"
   description: "Chatbot Agent"
-  provider: "openai" # OpenAI, anthropic, xai
+  provider: "openai" # openAI, anthropic, xai, google, groq, ollama
   max_messages: 25
   params:
-    model: "gpt-4o-mini" # OpenAI model, anthropic model
-    temperature: 0.5 # Temperature
+    model: "gpt-4o" # gemini-2.0-flash-exp,gpt-4o-mini,grok-beta,llama-3.3-70b-versatile
+    temperature: 0.9 # Temperature
     streaming: true
     # frequency_penalty: 1
     # presence_penalty: 1
@@ -31,7 +31,12 @@ chatbot_agent:
     {context}
 
     Respond to the human as helpfully and as human-like as possible, in the same language as the human. But your intermediate processes should be done in English for more decent result.
-
+test_llm:
+  provider: "xai"
+  params:
+    model: "grok-beta"
+    temperature: 0.0
+    streaming: true
 
 
 entity_extractor_agent:

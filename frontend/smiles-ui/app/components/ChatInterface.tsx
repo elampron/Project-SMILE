@@ -14,7 +14,7 @@ export interface ChatMessage {
 // Server Component
 export default async function ChatInterface() {
   // Fetch initial messages on the server
-  const messages = await getMessages("Testing-01", 50)
+  const messages = await getMessages("Testing-02", 50)
 
   return (
     <div className="flex-grow flex flex-col h-full">
@@ -22,7 +22,7 @@ export default async function ChatInterface() {
         <Suspense fallback={<div>Loading messages...</div>}>
           <MessageList initialMessages={messages} />
         </Suspense>
-        <ChatInput threadId="Testing-01" />
+        <ChatInput threadId="Testing-02" />
       </div>
     </div>
   )

@@ -1,0 +1,9 @@
+services:
+  livekit-smiles-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: livekit-smiles-agent
+    env_file:
+      - .env
+    restart: unless-stopped

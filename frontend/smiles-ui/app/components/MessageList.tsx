@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ChatMessage } from './ChatInterface'
+import ReactMarkdown from 'react-markdown'
 
 interface MessageListProps {
   initialMessages: ChatMessage[]
@@ -81,7 +82,9 @@ export function MessageList({ initialMessages }: MessageListProps) {
                 {new Date(message.timestamp).toLocaleTimeString()}
               </span>
             </div>
-            <div className="whitespace-pre-wrap">{message.content}</div>
+            <div className="whitespace-pre-wrap prose prose-invert max-w-none">
+              <ReactMarkdown>{message.content}</ReactMarkdown>
+            </div>
           </div>
         ))}
         
@@ -94,8 +97,10 @@ export function MessageList({ initialMessages }: MessageListProps) {
                 {new Date().toLocaleTimeString()}
               </span>
             </div>
-            <div className="whitespace-pre-wrap">
-              {currentAiMessage || (
+            <div className="whitespace-pre-wrap prose prose-invert max-w-none">
+              {currentAiMessage ? (
+                <ReactMarkdown>{currentAiMessage}</ReactMarkdown>
+              ) : (
                 <span className="flex items-center">
                   <span className="animate-pulse">Thinking</span>
                   <span className="animate-[bounce_1s_infinite] ml-1">.</span>

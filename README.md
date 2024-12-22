@@ -1,9 +1,74 @@
 # Project SMILE
 ## Smart Management of Integrated Life Entropy
 
-Project SMILE is a personal AI assistant designed to transform life’s daily chaos into seamless order. Built to be witty, sociable, and a little bit nerdy, SMILE combines advanced memory, decision-making, and conversation tools to help manage emails, schedules, and everyday tasks. With a focus on adaptive communication, SMILE can switch between modes like “Focus” for productivity or “Therapist” for support, creating a personalized experience for any need. This open-source project is built to integrate effortlessly, using science and smart architecture to bring a friendly, organized touch to life’s entropy.
+Project SMILE is a sophisticated personal AI assistant designed to transform life's daily chaos into seamless order. Built with advanced cognitive architecture, SMILE combines state-of-the-art memory systems, natural language processing, and adaptive communication to create a truly personalized assistant experience.
 
----
+## Core Features
+
+### 1. Cognitive Memory System
+- **Long-term Memory Storage**: Sophisticated memory architecture using Neo4j graph database
+- **Multi-dimensional Memory Types**: Support for various memory categories including:
+  - Personal information and preferences
+  - Events and temporal data
+  - Organizations and locations
+  - Tasks and projects
+  - Historical context
+- **Memory Validation**: Built-in validation system to maintain memory accuracy and resolve contradictions
+- **Temporal Context Tracking**: Advanced handling of time-based information including:
+  - Recurring events
+  - Valid time periods
+  - Historical references
+
+### 2. Natural Language Understanding
+- **Context-Aware Processing**: Maintains conversation context across interactions
+- **Entity Recognition**: Identifies and tracks mentions of people, organizations, and locations
+- **Semantic Analysis**: Extracts keywords, categories, and cognitive aspects from conversations
+- **Sentiment Analysis**: Tracks emotional context and importance of interactions
+
+### 3. Knowledge Graph Integration
+- **Relationship Tracking**: Maps connections between entities, memories, and concepts
+- **Semantic Network**: Builds a rich network of interconnected information
+- **Association Strength**: Tracks and updates relationship strengths over time
+- **Graph-based Querying**: Enables complex relationship-based information retrieval
+
+### 4. Document Management
+- **Smart Document Organization**: Automatic categorization and tagging of documents
+- **Content Analysis**: Extracts key information and topics from documents
+- **Version Control**: Tracks document versions and access patterns
+- **Metadata Management**: Rich metadata tracking including:
+  - Creation and access timestamps
+  - Language detection
+  - Content summaries
+  - Custom tags and categories
+
+### 5. Modern Web Interface
+- **Responsive Design**: Built with Next.js and Tailwind CSS
+- **Dark/Light Mode**: Automatic theme switching based on system preferences
+- **Custom Typography**: Optimized reading experience with Geist font family
+- **Interactive UI Components**: Modern, accessible interface components
+
+## Technical Architecture
+
+### Backend Stack
+- **Python 3.8+**: Core application runtime
+- **FastAPI**: High-performance API framework
+- **Neo4j**: Graph database for memory and relationship storage
+- **PostgreSQL**: Relational database for structured data
+- **LangChain**: Framework for LLM integration
+- **OpenAI/Anthropic**: AI model providers
+
+### Frontend Stack
+- **Next.js 15+**: React framework for web interface
+- **TypeScript**: Type-safe development
+- **Tailwind CSS**: Utility-first styling
+- **Shadcn/UI**: Modern UI component library
+- **React Markdown**: Rich text rendering
+
+### Infrastructure
+- **Docker**: Containerized deployment
+- **Docker Compose**: Multi-container orchestration
+- **Poetry**: Python dependency management
+- **Environment Management**: Flexible configuration via .env files
 
 ## Setup Instructions
 
@@ -134,3 +199,36 @@ docker-compose down
 ## Contact
 
 For questions or support, please contact [your-email@example.com](mailto:your-email@example.com).
+
+## Advanced Features
+
+### Memory Categories
+- **Person Memory**: Stores individual profiles, preferences, and interaction history
+- **Organization Memory**: Tracks business and institutional information
+- **Location Memory**: Geographic and spatial context storage
+- **Event Memory**: Temporal data with support for recurring events
+- **Task/Project Memory**: Progress tracking and deadline management
+- **Conversation Context**: Maintains interaction continuity
+- **Product Information**: Tracks product details and relationships
+- **Interest/Hobbies**: Personal preference and interest tracking
+
+### Cognitive Processing
+- **Multi-aspect Analysis**: Processes factual, emotional, and temporal aspects
+- **Confidence Scoring**: Maintains confidence levels for stored information
+- **Contradiction Resolution**: Identifies and resolves conflicting information
+- **Association Building**: Creates and maintains memory relationships
+- **Temporal Reasoning**: Handles complex time-based relationships
+
+## Development Guidelines
+
+### Code Standards
+- Comprehensive documentation and docstrings
+- Detailed logging throughout the application
+- Type hints and validation
+- Error handling and graceful degradation
+
+### Security
+- API key management
+- Secure data storage
+- Access control and validation
+- Privacy-first design

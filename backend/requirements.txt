@@ -48,7 +48,6 @@ langgraph-checkpoint-sqlite
 langgraph-checkpoint
 langgraph-sdk
 langgraph
-langmem
 langsmith
 markdown-it-py
 markupsafe

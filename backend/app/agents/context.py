@@ -13,8 +13,9 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from uuid import UUID
 from neo4j import GraphDatabase, Session
-from app.services.neo4j import get_similar_memories, driver
+from app.services.neo4j import driver, vector_similarity_search
 from app.services.embeddings import EmbeddingsService
+from app.services.knowledge_search import KnowledgeSearchService
 
 from app.models.memory import (
     Preference, PersonEntity, OrganizationEntity, 
@@ -36,6 +37,8 @@ class ContextManager:
     
     Attributes:
         driver: Neo4j driver instance for database operations
+        knowledge_service: Service for advanced knowledge search
+        embeddings_service: Service for generating embeddings
     """
     
     def __init__(self, driver: GraphDatabase.driver):
@@ -46,9 +49,10 @@ class ContextManager:
             driver: Neo4j driver instance for database operations
         """
         self.driver = driver
-        self.embeddings_service = EmbeddingsService(driver)
+        self.knowledge_service = KnowledgeSearchService(driver)
+        self.embeddings_service = EmbeddingsService()
         
-    def get_formatted_context(self, user_input: str) -> str:
+    async def get_formatted_context(self, user_input: str) -> str:
         """
         Master method to gather and format all context for the LLM.
         
@@ -65,54 +69,93 @@ class ContextManager:
         try:
             logger.debug(f"Starting context gathering for input: {user_input}")
             
-            # Gather different types of context
+            # Get important preferences (high priority items that should always be included)
             important_preferences = self._get_important_preferences()
-            relevant_preferences = self._get_relevant_preferences(user_input)
-            relevant_entities = self._get_relevant_entities(user_input)
-            relevant_summaries = self._get_relevant_summaries(user_input)
-            relevant_memories = self._get_relevant_memories(user_input)
-            recent_summaries = self._get_recent_summaries()
-            relevant_documents = self._get_relevant_documents(user_input)
+            logger.debug(f"Found {len(important_preferences)} important preferences")
+            
+            # Use knowledge search for all other context
+            knowledge_results = self.knowledge_service.search_knowledge(
+                query=user_input,
+                filters={
+                    "node_types": [
+                        "Preference",
+                        "Summary",
+                        "Person",
+                        "Organization",
+                        "Document",
+                        "CognitiveMemory"
+                    ]
+                },
+                limit=10,
+                min_score=0.7
+            )
+            logger.debug(f"Knowledge search returned {len(knowledge_results)} results")
+            
+            # Organize results by type
+            organized_results = self._organize_knowledge_results(knowledge_results)
+            logger.debug(f"Organized results by type: {organized_results.keys()}")
             
             # Format the context
             context_parts = []
             
-            if relevant_documents:
+            if organized_results.get('Document'):
                 context_parts.append("RELEVANT DOCUMENTS:")
-                context_parts.extend(self._format_documents(relevant_documents))
+                context_parts.extend(self._format_documents(organized_results['Document']))
+                logger.debug(f"Added {len(organized_results['Document'])} document contexts")
             
             if important_preferences:
                 context_parts.append("\nIMPORTANT PREFERENCES:")
                 context_parts.extend(self._format_preferences(important_preferences))
+                logger.debug(f"Added {len(important_preferences)} important preference contexts")
             
-            if relevant_preferences:
+            if organized_results.get('Preference'):
                 context_parts.append("\nRELEVANT PREFERENCES:")
-                context_parts.extend(self._format_preferences(relevant_preferences))
+                context_parts.extend(self._format_preferences(organized_results['Preference']))
+                logger.debug(f"Added {len(organized_results['Preference'])} relevant preference contexts")
             
-            if relevant_entities:
+            if organized_results.get('Person') or organized_results.get('Organization'):
                 context_parts.append("\nRELEVANT ENTITIES:")
-                context_parts.extend(self._format_entities(relevant_entities))
+                if organized_results.get('Person'):
+                    context_parts.extend(self._format_entities(organized_results['Person']))
+                    logger.debug(f"Added {len(organized_results['Person'])} person contexts")
+                if organized_results.get('Organization'):
+                    context_parts.extend(self._format_entities(organized_results['Organization']))
+                    logger.debug(f"Added {len(organized_results['Organization'])} organization contexts")
             
-            if relevant_memories:
+            if organized_results.get('CognitiveMemory'):
                 context_parts.append("\nRELEVANT MEMORIES:")
-                context_parts.extend(relevant_memories)
-            
-            if recent_summaries:
-                context_parts.append("\nRECENT CONVERSATION SUMMARIES:")
-                context_parts.extend(self._format_summaries(recent_summaries))
-            
-            if relevant_summaries:
-                context_parts.append("\nRELEVANT SUMMARIES:")
-                context_parts.extend(self._format_summaries(relevant_summaries))
+                context_parts.extend(self._format_memories(organized_results['CognitiveMemory']))
+                logger.debug(f"Added {len(organized_results['CognitiveMemory'])} memory contexts")
             
             formatted_context = "\n".join(context_parts)
-            logger.debug(f"Formatted context: {formatted_context}")
-            
+            logger.debug(f"Final formatted context length: {len(formatted_context)}")
             return formatted_context
             
         except Exception as e:
             logger.error(f"Error gathering context: {str(e)}")
             return ""
+    
+    def _organize_knowledge_results(self, results: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Organize knowledge search results by node type.
+        
+        Args:
+            results: List of search results from knowledge service
+            
+        Returns:
+            Dict[str, List[Dict[str, Any]]]: Results organized by node type
+        """
+        organized = {}
+        for result in results:
+            node_type = result.get('node_label', 'Unknown')
+            if node_type not in organized:
+                organized[node_type] = []
+            # Extract the node data from the result structure
+            node_data = result.get('node', {})
+            # Add score to node data for potential use in formatting
+            node_data['score'] = result.get('score', 0.0)
+            organized[node_type].append(node_data)
+        return organized
     
     def _get_important_preferences(self) -> List[Preference]:
         """
@@ -217,11 +260,24 @@ class ContextManager:
             List[CognitiveMemory]: List of relevant cognitive memories
         """
         try:
+            # Generate embedding for the query
+            query_embedding = self.embeddings_service.generate_embedding(user_input)
+            
             with self.driver.session() as session:
-                # Use execute_read for read-only operations
-                return session.execute_read(
-                    lambda tx: get_similar_memories(tx, text=user_input)
+                # Use vector search to find relevant memories
+                results = vector_similarity_search(
+                    session=session,
+                    index_name="memory_embeddings",
+                    query_vector=query_embedding,
+                    k=5,
+                    min_score=0.7
                 )
+                
+                return [
+                    self._neo4j_to_cognitive_memory(result["node"]) 
+                    for result in results
+                ]
+                
         except Exception as e:
             logger.error(f"Error getting relevant memories: {str(e)}")
             # Fallback to getting recent important memories if semantic search fails
@@ -270,33 +326,78 @@ class ContextManager:
         Returns:
             List[ConversationSummary]: List of relevant conversation summaries
         """
-        # TODO: Implement semantic search for summaries
-        query = """
-        MATCH (s:Summary)
-        RETURN s {
-        .*, 
-            embedding: null
-        } as s
-        ORDER BY s.created_at DESC
-        LIMIT 5
-        """
-        with self.driver.session() as session:
-            result = session.run(query)
-            return [self._neo4j_to_conversation_summary(record["s"]) for record in result]
+        try:
+            # Generate embedding for the query
+            query_embedding = self.embeddings_service.generate_embedding(user_input)
+            
+            with self.driver.session() as session:
+                # Use vector search to find relevant summaries
+                results = vector_similarity_search(
+                    session=session,
+                    index_name="summary_embeddings",
+                    query_vector=query_embedding,
+                    k=5,
+                    min_score=0.7
+                )
+                
+                return [
+                    self._neo4j_to_conversation_summary(result["node"]) 
+                    for result in results
+                ]
+                
+        except Exception as e:
+            logger.error(f"Error getting relevant summaries: {str(e)}")
+            # Fallback to getting recent summaries if semantic search fails
+            query = """
+            MATCH (s:Summary)
+            RETURN s {
+                .*, 
+                embedding: null
+            } as s
+            ORDER BY s.created_at DESC
+            LIMIT 5
+            """
+            with self.driver.session() as session:
+                result = session.run(query)
+                return [self._neo4j_to_conversation_summary(record["s"]) for record in result]
     
     def _format_preferences(self, preferences: List[Preference]) -> List[str]:
         """Format preferences into human-readable strings."""
         formatted = []
         for pref in preferences:
-            details_str = ", ".join(f"{k}: {v}" for k, v in pref.details.items())
-            formatted.append(f"- {pref.preference_type}: {details_str} (Importance: {pref.importance})")
+            try:
+                # Convert details from string to dict if needed
+                details = pref.get('details', {})
+                if isinstance(details, str):
+                    try:
+                        details = json.loads(details)
+                    except:
+                        details = {'value': details}
+                
+                details_str = ", ".join(f"{k}: {v}" for k, v in details.items())
+                formatted.append(
+                    f"- {pref.get('preference_type', 'Unknown')}: {details_str} "
+                    f"(Importance: {pref.get('importance', 1)}, "
+                    f"Score: {pref.get('score', 0.0):.2f})"
+                )
+            except Exception as e:
+                logger.error(f"Error formatting preference: {str(e)}")
+                continue
         return formatted
     
     def _format_entities(self, entities: List[Dict]) -> List[str]:
         """Format entities into human-readable strings."""
         formatted = []
         for entity in entities:
-            formatted.append(f"- {entity['name']} ({entity['type']})")
+            try:
+                formatted.append(
+                    f"- {entity.get('name', 'Unknown')} "
+                    f"({entity.get('type', 'Unknown')}, "
+                    f"Score: {entity.get('score', 0.0):.2f})"
+                )
+            except Exception as e:
+                logger.error(f"Error formatting entity: {str(e)}")
+                continue
         return formatted
     
     def _format_facts(self, facts: List[Dict]) -> List[str]:
@@ -315,12 +416,25 @@ class ContextManager:
         """
         formatted = []
         for memory in memories:
-            formatted.append(
-                f"- {memory.content} "
-                f"(Source: {memory.source}, "
-                f"Importance: {memory.importance}, "
-                f"Created: {memory.created_at.strftime('%Y-%m-%d %H:%M')})"
-            )
+            try:
+                created_at = memory.get('created_at')
+                if hasattr(created_at, 'to_native'):
+                    created_at = created_at.to_native()
+                elif isinstance(created_at, str):
+                    created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                else:
+                    created_at = datetime.utcnow()
+
+                formatted.append(
+                    f"- {memory.get('content', 'No content')} "
+                    f"(Source: {memory.get('source', 'Unknown')}, "
+                    f"Importance: {memory.get('importance', 1)}, "
+                    f"Score: {memory.get('score', 0.0):.2f}, "
+                    f"Created: {created_at.strftime('%Y-%m-%d %H:%M')})"
+                )
+            except Exception as e:
+                logger.error(f"Error formatting memory: {str(e)}")
+                continue
         return formatted
     
     def _format_summaries(self, summaries: List[ConversationSummary]) -> List[str]:
@@ -583,56 +697,51 @@ class ContextManager:
 
             
 if __name__ == "__main__":
-    """
-    Test script to validate the ContextManager's get_formatted_context functionality.
-    This allows for quick testing and verification of context gathering and formatting.
-    """
-    import os
-    from dotenv import load_dotenv
+    """Test script for the ContextManager"""
+    import logging
+    import asyncio
     
-    # Setup logging for test
-    logging.basicConfig(level=logging.DEBUG)
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     logger = logging.getLogger(__name__)
     
-    # Load environment variables
-    load_dotenv()
-    
-    try:
-        # Initialize Neo4j driver and ContextManager
-        logger.info("Initializing Neo4j driver and ContextManager...")
-        neo4j_uri = settings.app_config["neo4j_config"]["uri"]
-        neo4j_username = settings.app_config["neo4j_config"]["username"]
-        neo4j_password = settings.app_config["neo4j_config"]["password"]
-        
-        driver = GraphDatabase.driver(
-            neo4j_uri,
-            auth=(neo4j_username, neo4j_password)
-        )
-        
-        context_manager = ContextManager(driver)
-        
-        # Test cases
-        test_inputs = [
-            "When I talk about Thinkmax, what comes to mind?",
-            "Do you remember what's next on our Smiles project?"
-        ]
-        
-        # Run tests
-        for test_input in test_inputs:
-            logger.info(f"\nTesting with input: {test_input}")
-            try:
-                formatted_context = context_manager.get_formatted_context(test_input)
-                logger.info("Formatted Context:")
-                logger.info("-" * 50)
-                logger.info(formatted_context)
-                logger.info("-" * 50)
-            except Exception as e:
-                logger.error(f"Error processing input '{test_input}': {str(e)}")
+    async def main():
+        try:
+            logger.info("Starting context manager test...")
+            context_manager = ContextManager(driver)
+            logger.info("ContextManager initialized successfully")
+            
+            # Test inputs
+            test_inputs = [
+                "When I talk about Thinkmax, what comes to mind?",
+                "Do you remember what's next on our Smiles project?"
+            ]
+            
+            # Test each input
+            for test_input in test_inputs:
+                logger.info(f"\nTesting with input: {test_input}")
+                try:
+                    logger.info("Getting formatted context...")
+                    formatted_context = await context_manager.get_formatted_context(test_input)
+                    logger.info("Successfully got formatted context")
+                    logger.info("Formatted Context:")
+                    logger.info("-" * 50)
+                    logger.info(formatted_context)
+                    logger.info("-" * 50)
+                except Exception as e:
+                    logger.error(f"Error processing input '{test_input}': {str(e)}")
                 
-    except Exception as e:
-        logger.error(f"Test script failed: {str(e)}")
-    finally:
-        # Cleanup
-        if 'driver' in locals():
+        except Exception as e:
+            logger.error(f"Error during testing: {str(e)}")
+            raise
+        finally:
+            logger.info("Closing Neo4j driver...")
             driver.close()
             logger.info("Neo4j driver closed")
+    
+    # Run the async main function
+    logger.info("Starting test script...")
+    asyncio.run(main())

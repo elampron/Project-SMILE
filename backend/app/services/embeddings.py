@@ -1,10 +1,10 @@
 """
-Embeddings service for managing vector operations in Neo4j.
+Embeddings service for managing text embeddings.
 
 This module provides functionality for:
 1. Generating embeddings using OpenAI's text-embedding model
-2. Creating and managing vector indexes in Neo4j
-3. Performing vector similarity searches
+2. Batch processing for multiple texts
+3. Embedding caching (future enhancement)
 """
 
 import logging
@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Optional
 import openai
 from app.configs.settings import settings
 from dotenv import load_dotenv
+from neo4j import GraphDatabase
 
 # Load environment variables from .env file
 load_dotenv()
@@ -21,65 +22,23 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingsService:
     """
-    Service for managing embeddings and vector operations.
+    Service for managing text embeddings.
     
     This class handles:
     1. Generating embeddings using OpenAI's API
-    2. Creating and managing vector indexes in Neo4j
-    3. Performing similarity searches
+    2. Batch processing for multiple texts
+    3. Future: Embedding caching and optimization
     """
     
-    def __init__(self, driver):
+    def __init__(self, driver: Optional[GraphDatabase.driver] = None):
         """
         Initialize the EmbeddingsService.
         
         Args:
-            driver: Neo4j driver instance
+            driver (Optional[GraphDatabase.driver]): Neo4j driver instance for database operations
         """
-        self.driver = driver
         self.model = settings.llm_config.get("embeddings").get("params").get("model")
-    
-        
-    def create_vector_indexes(self):
-        """
-        Create vector indexes in Neo4j for similarity search.
-        This should be called during application initialization.
-        """
-        indexes = [
-            ("Preference", "preference_vector", "embedding", 1536),  # OpenAI embedding dimension
-            ("Summary", "summary_vector", "embedding", 1536),
-            ("Person", "person_vector", "embedding", 1536),
-            ("Organization", "org_vector", "embedding", 1536),
-            ("Document", "document_vector", "embedding", 1536)
-        ]
-        
-        with self.driver.session() as session:
-            for label, index_name, property_name, dimensions in indexes:
-                try:
-                    # Create vector index
-                    query = f"""
-                    CALL db.index.vector.createNodeIndex(
-                        $index_name,
-                        $label,
-                        $property_name,
-                        $dimensions,
-                        'cosine'
-                    )
-                    """
-                    session.run(
-                        query,
-                        index_name=index_name,
-                        label=label,
-                        property_name=property_name,
-                        dimensions=dimensions
-                    )
-                    logger.info(f"Created vector index {index_name} for {label} nodes")
-                except Exception as e:
-                    if "An equivalent index already exists" in str(e):
-                        logger.debug(f"Vector index {index_name} already exists")
-                    else:
-                        logger.error(f"Error creating vector index {index_name}: {str(e)}")
-                        raise
+        self.driver = driver
     
     def generate_embedding(self, text: str) -> List[float]:
         """
@@ -104,97 +63,62 @@ class EmbeddingsService:
             logger.error(f"Error generating embedding: {str(e)}")
             raise
     
-    def similarity_search(
-        self,
-        query_embedding: List[float],
-        node_label: str,
-        limit: int = 5,
-        min_score: float = 0.7
-    ) -> List[Dict[str, Any]]:
+    def batch_generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """
-        Perform similarity search in Neo4j using vector index.
+        Generate embeddings for multiple texts in batch.
         
         Args:
-            query_embedding: Query vector
-            node_label: Label of nodes to search (Preference, Summary, etc.)
-            limit: Maximum number of results
-            min_score: Minimum similarity score (0-1)
+            texts: List of texts to generate embeddings for
             
         Returns:
-            List[Dict]: List of similar nodes with their properties
-        """
-        query = f"""
-        CALL db.index.vector.queryNodes(
-            $index_name,
-            $k,
-            $query_vector,
-            $min_score
-        ) YIELD node, score
-        RETURN node, score
-        ORDER BY score DESC
-        """
-        
-        with self.driver.session() as session:
-            try:
-                index_name = {
-                    "Preference": "preference_vector",
-                    "Summary": "summary_vector",
-                    "Person": "person_vector",
-                    "Organization": "org_vector"
-                }[node_label]
-                
-                result = session.run(
-                    query,
-                    index_name=index_name,
-                    k=limit,
-                    query_vector=query_embedding,
-                    min_score=min_score
-                )
-                
-                return [
-                    {
-                        **dict(record["node"]),
-                        "similarity_score": record["score"]
-                    }
-                    for record in result
-                ]
-            except Exception as e:
-                logger.error(f"Error performing similarity search: {str(e)}")
-                raise 
-    
-    def create_document_node(self, content: str, metadata: Dict[str, Any]) -> None:
-        """
-        Create a document node with embeddings in Neo4j.
-        
-        Args:
-            content: Document content
-            metadata: Document metadata (filename, created_at, etc.)
+            List[List[float]]: List of vector embeddings
+            
+        Raises:
+            Exception: If batch embedding generation fails
         """
         try:
-            # Generate embedding for the document
-            embedding = self.generate_embedding(content)
-            
-            # Create document node with embedding
-            with self.driver.session() as session:
-                query = """
-                CREATE (d:Document {
-                    content: $content,
-                    filename: $filename,
-                    created_at: datetime($created_at),
-                    user_id: $user_id,
-                    embedding: $embedding
-                })
-                """
-                session.run(
-                    query,
-                    content=content,
-                    filename=metadata.get('filename'),
-                    created_at=metadata.get('created_at'),
-                    user_id=metadata.get('user_id'),
-                    embedding=embedding
-                )
-                logger.info(f"Created document node for {metadata.get('filename')}")
-                
+            response = openai.embeddings.create(
+                model=self.model,
+                input=texts
+            )
+            return [data.embedding for data in response.data]
         except Exception as e:
-            logger.error(f"Error creating document node: {str(e)}")
+            logger.error(f"Error generating batch embeddings: {str(e)}")
             raise
+
+if __name__ == "__main__":
+    """
+    Test script for EmbeddingsService
+    """
+    import logging
+    
+    # Configure logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Initialize service
+        embeddings_service = EmbeddingsService()
+        
+        # Test 1: Generate single embedding
+        logger.info("\nTest 1: Generating single embedding...")
+        text = "This is a test sentence for embedding generation."
+        embedding = embeddings_service.generate_embedding(text)
+        logger.info(f"Generated embedding with {len(embedding)} dimensions")
+        
+        # Test 2: Generate batch embeddings
+        logger.info("\nTest 2: Generating batch embeddings...")
+        texts = [
+            "First test sentence for batch processing.",
+            "Second test sentence for batch processing.",
+            "Third test sentence for batch processing."
+        ]
+        embeddings = embeddings_service.batch_generate_embeddings(texts)
+        logger.info(f"Generated {len(embeddings)} embeddings")
+        for i, emb in enumerate(embeddings):
+            logger.info(f"Embedding {i+1} dimensions: {len(emb)}")
+        
+    except Exception as e:
+        logger.error(f"Error in test script: {str(e)}")
+    finally:
+        logger.info("Tests completed")

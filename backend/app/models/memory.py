@@ -683,7 +683,7 @@ class CognitiveMemory(BaseModel):
     source_messages: List[str] = Field(default_factory=list)
     
     # Confidence and Validation
-    confidence: float = Field(default=1.0)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     validation: ValidationStatus = Field(default_factory=ValidationStatus)
     
     # Relations and Associations
@@ -692,11 +692,11 @@ class CognitiveMemory(BaseModel):
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
-    access_count: int = 0
+    access_count: int = Field(ge=0)
     last_accessed: Optional[datetime] = None
     
     # System Fields
-    version: int = 1
+    version: int = Field(ge=1)
     is_archived: bool = False
     
     class Config:
@@ -706,24 +706,42 @@ class CognitiveMemory(BaseModel):
         }
     
     @model_validator(mode='after')
-    def validate_dates(self) -> 'CognitiveMemory':
-        """Ensure temporal consistency."""
+    def validate_memory(self) -> 'CognitiveMemory':
+        """Validate the memory model."""
+        # Validate content
+        if not self.content.strip():
+            raise ValueError("Content cannot be empty")
+            
+        # Validate semantic attributes
+        if self.semantic.importance < 0.0 or self.semantic.importance > 1.0:
+            raise ValueError("Semantic importance must be between 0.0 and 1.0")
+            
+        # Validate temporal consistency
         if self.temporal.valid_until and self.temporal.valid_from:
             if self.temporal.valid_until < self.temporal.valid_from:
                 raise ValueError("valid_until must be after valid_from")
+                
+        # Validate memory type
+        valid_types = {
+            "FACTUAL", "TEMPORAL", "SPATIAL", "CAUSAL", "EMOTIONAL", 
+            "BEHAVIORAL", "SOCIAL", "PROCEDURAL", "RELATIONSHIP"
+        }
+        if self.type.upper() not in valid_types:
+            raise ValueError(f"Invalid memory type. Must be one of: {', '.join(valid_types)}")
+                
         return self
-
+    
     def increment_access(self):
         """Update access metadata when memory is retrieved."""
         self.access_count += 1
         self.last_accessed = datetime.utcnow()
-
+    
     def update_confidence(self, new_confidence: float, reason: str):
         """Update confidence with validation."""
         self.confidence = new_confidence
         self.updated_at = datetime.utcnow()
         # Could add confidence history tracking here
-
+    
     def add_association(self, target_id: UUID, assoc_type: str, strength: float, context: Optional[str] = None):
         """Add a new association to another memory."""
         association = MemoryAssociation(
@@ -733,7 +751,7 @@ class CognitiveMemory(BaseModel):
             context=context
         )
         self.relations.associations.append(association)
-
+    
     def to_embedding_text(self) -> str:
         """Generate text representation for embedding."""
         components = [

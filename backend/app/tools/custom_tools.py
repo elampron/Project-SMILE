@@ -25,7 +25,15 @@ from .entity import (
 # Import memory tools
 from .memory import (
     SearchMemoriesTool,
-    SearchMemoriesInput
+    SearchMemoriesInput,
+    SaveMemoryTool,
+    SaveMemoryInput
+)
+
+# Import knowledge tools
+from .knowledge import (
+    SearchKnowledgeTool,
+    SearchKnowledgeInput
 )
 
 __all__ = [
@@ -47,6 +55,12 @@ __all__ = [
     
     # Memory tools
     'SearchMemoriesTool',
-    'SearchMemoriesInput'
+    'SearchMemoriesInput',
+    'SaveMemoryTool',
+    'SaveMemoryInput',
+    
+    # Knowledge tools
+    'SearchKnowledgeTool',
+    'SearchKnowledgeInput'
 ]
 

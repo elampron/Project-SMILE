@@ -1,5 +1,5 @@
 import logging
-from typing import Annotated, Sequence, TypedDict, Dict, List
+from typing import Annotated, Sequence, TypedDict, Dict, List, Generator
 from typing_extensions import Literal
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -17,9 +17,8 @@ from app.tools.custom_tools import (
     execute_python,
     execute_cmd,
     save_document,
-    SearchDocumentsTool,
-    SearchEntitiesTool,
-    SearchMemoriesTool
+    SearchKnowledgeTool,
+    SaveMemoryTool
 )
 from app.utils.llm import llm_factory, prepare_conversation_data
 from app.models.agents import AgentState, User, Attachment, AttachmentType
@@ -33,6 +32,7 @@ from pathlib import Path
 import os
 from langchain.tools import StructuredTool
 from pydantic import BaseModel
+import asyncio
 
 
 
@@ -199,6 +199,13 @@ class Smile:
                 last_messages = [msg for msg in state.messages if isinstance(msg, (HumanMessage, AIMessage))][-5:]
                 user_input = "\n".join([msg.content for msg in last_messages if hasattr(msg, 'content')])
                 context = self.context_manager.get_formatted_context(user_input)
+                if asyncio.iscoroutine(context):
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    context = loop.run_until_complete(context)
                 self.logger.info(f"Context: {context}")
                 
                 # Create prompt
@@ -218,9 +225,6 @@ class Smile:
 
                 # Get response
                 response = chain.invoke(prompt_values)
-                
-                # Update state with new message
-               
                 
                 return {"messages": [response]}
             
@@ -279,29 +283,30 @@ class Smile:
             return_direct=True
         )
         
+        # Initialize tools
         self.tools = [
             web_search_tool,
             *file_tools,
             execute_python,
             execute_cmd,
-            save_document,  # Save document tool
-            SearchDocumentsTool(),  # Document search
-            SearchEntitiesTool(),  # Entity search
-            SearchMemoriesTool(),  # Memory search
+            # save_document,  # Save document tool
+            SearchKnowledgeTool(embeddings_service=self.embeddings_service),  # Knowledge search
+            SaveMemoryTool(),  # Memory saving tool
             reload_tool  # Reload tool
         ]
-          # Define a new graph
+        
+        # Define a new graph
         workflow = StateGraph(AgentState)
         tool_node = ToolNode(self.tools)
-
+        
         # Define the two nodes we will cycle between
         workflow.add_node("agent", self.call_model)
         workflow.add_node("tools", tool_node)
-
+        
         # Set the entrypoint as `agent`
         # This means that this node is the first one called
         workflow.set_entry_point("agent")
-
+        
         # We now add a conditional edge
         workflow.add_conditional_edges(
             # First, we define the start node. We use `agent`.
@@ -312,9 +317,9 @@ class Smile:
         )
 
         workflow.add_edge("tools", "agent")
-
-    # Finally, we compile it!
-    # This compiles it into a LangChain Runnable,
+        
+        # Finally, we compile it!
+        # This compiles it into a LangChain Runnable,
         # meaning you can use it as you would any other runnable
         self.graph=workflow.compile(
             checkpointer=self._checkpointer,
@@ -323,8 +328,6 @@ class Smile:
             debug=False,
         )
 
-
-        
         self.logger.info("Agent graph initialized successfully")
 
     def get_conversation_history(self, num_messages=50, thread_id="MainThread"):
@@ -374,7 +377,7 @@ class Smile:
             self.logger.error(f"Error retrieving conversation history: {str(e)}", exc_info=True)
             raise
 
-    def stream(self, message: str, config: Dict, attachments: List[Attachment] = None) -> str:
+    def stream(self, message: str, config: Dict, attachments: List[Attachment] = None) -> Generator[str, None, None]:
         """
         Stream method that handles both message and attachments.
         

@@ -5,7 +5,7 @@ import logging
 from typing import Optional, Dict, Any, List, ClassVar
 from pydantic import BaseModel, Field
 from langchain.tools import BaseTool
-from app.services.neo4j import driver
+from app.services.neo4j import driver, vector_similarity_search, get_related_entities
 from app.services.embeddings import EmbeddingsService
 
 # Configure logging
@@ -28,11 +28,11 @@ class SearchMemoriesInput(BaseModel):
     )
 
 class SearchMemoriesTool(BaseTool):
-    """Tool for searching cognitive memories in Pixel's knowledge base."""
+    """Tool for searching cognitive memories in SMILE's knowledge base."""
     
     name: ClassVar[str] = "search_memories"
     description: ClassVar[str] = """
-    Search for relevant memories in Pixel's knowledge base.
+    Search for relevant memories in SMILE's knowledge base.
     Use this tool when you need to:
     - Find memories related to a specific topic
     - Search for past experiences or learnings
@@ -45,7 +45,7 @@ class SearchMemoriesTool(BaseTool):
     args_schema: ClassVar[type[BaseModel]] = SearchMemoriesInput
     
     # Add model field for service
-    embeddings_service: EmbeddingsService = Field(default_factory=lambda: EmbeddingsService(driver))
+    embeddings_service: EmbeddingsService = Field(default_factory=lambda: EmbeddingsService())
     
     def __init__(self, **data):
         """Initialize the tool with necessary services."""
@@ -100,43 +100,42 @@ class SearchMemoriesTool(BaseTool):
             # Generate embedding for the query
             query_embedding = self.embeddings_service.generate_embedding(query)
             
-            # Build the search query
-            cypher_query = """
-            MATCH (m:CognitiveMemory)
-            WITH m, vector.similarity.cosine($query_embedding, m.embedding) AS score
-            WHERE score >= 0.7
-            
-            // Get related entities
-            OPTIONAL MATCH (m)-[r]-(related)
-            WITH m, score, collect(DISTINCT related.name) as related_entities
-            
-            RETURN m {
-                .*, 
-                related_entities: related_entities
-            } as memory, score
-            ORDER BY score DESC
-            LIMIT $limit
-            """
+            # Build importance filter if specified
+            additional_filters = None
+            if importance is not None:
+                additional_filters = f"node.importance >= {importance}"
             
             # Execute the search
             with driver.session() as session:
-                result = session.run(
-                    cypher_query,
-                    query_embedding=query_embedding,
-                    importance=importance,
-                    limit=limit
+                results = vector_similarity_search(
+                    session=session,
+                    index_name="memory_embeddings",
+                    query_vector=query_embedding,
+                    k=limit,
+                    min_score=0.7,
+                    additional_filters=additional_filters
                 )
                 
-                memories = list(result)
-                
-                if not memories:
+                if not results:
                     return "No relevant memories found."
+                
+                # Get related entities for each memory
+                for result in results:
+                    memory_id = result["node"].get("id")
+                    if memory_id:
+                        related = get_related_entities(
+                            session=session,
+                            node_id=memory_id
+                        )
+                        result["node"]["related_entities"] = [
+                            entity.get("name") for entity in related
+                        ]
                 
                 # Format results
                 formatted_results = ["Here are the most relevant memories:"]
-                for i, record in enumerate(memories, 1):
-                    memory = record["memory"]
-                    score = record["score"]
+                for i, result in enumerate(results, 1):
+                    memory = result["node"]
+                    score = result["score"]
                     formatted_memory = self._format_memory(memory)
                     formatted_results.append(f"\n{i}. Relevance Score: {score:.2f}")
                     formatted_results.append(formatted_memory)
@@ -145,4 +144,101 @@ class SearchMemoriesTool(BaseTool):
                 
         except Exception as e:
             logger.error(f"Error searching memories: {str(e)}")
-            return f"An error occurred while searching memories: {str(e)}" 
+            return f"An error occurred while searching memories: {str(e)}"
+
+if __name__ == "__main__":
+    """
+    Test script for SearchMemoriesTool
+    """
+    import logging
+    
+    # Configure logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Initialize tool
+        search_tool = SearchMemoriesTool()
+        
+        # Create test data
+        with driver.session() as session:
+            # Create test memory
+            session.run("""
+                CREATE (m:CognitiveMemory)
+                SET m = $properties
+                """,
+                properties={
+                    "id": "test-memory-1",
+                    "content": "Client meeting discussed AI project requirements",
+                    "importance": 4,
+                    "created_at": "2024-01-01",
+                    "context": "Project Planning",
+                    "is_test": True,
+                    "embedding": search_tool.embeddings_service.generate_embedding(
+                        "Client meeting discussed AI project requirements"
+                    )
+                }
+            )
+            
+            # Create test entity
+            session.run("""
+                CREATE (e:Person)
+                SET e = $properties
+                """,
+                properties={
+                    "id": "test-person-1",
+                    "name": "John Smith",
+                    "role": "Client",
+                    "is_test": True
+                }
+            )
+            
+            # Create relationship
+            session.run("""
+                MATCH (m:CognitiveMemory {id: $memory_id})
+                MATCH (e:Person {id: $entity_id})
+                CREATE (m)-[:INVOLVES]->(e)
+                """,
+                memory_id="test-memory-1",
+                entity_id="test-person-1"
+            )
+            
+            logger.info("Created test data")
+            
+            # Test queries
+            test_queries = [
+                {
+                    "query": "What do we know about AI projects?",
+                    "importance": None
+                },
+                {
+                    "query": "Find important client discussions",
+                    "importance": 4
+                }
+            ]
+            
+            # Run test queries
+            for test in test_queries:
+                logger.info("\n" + "=" * 50)
+                logger.info(f"Testing query: {test['query']}")
+                logger.info(f"Importance filter: {test['importance']}")
+                
+                try:
+                    result = search_tool._run(
+                        query=test["query"],
+                        importance=test["importance"]
+                    )
+                    logger.info("\nResults:")
+                    logger.info(result)
+                    
+                except Exception as e:
+                    logger.error(f"Error processing query '{test['query']}': {str(e)}")
+            
+            # Clean up test data
+            session.run("MATCH (n) WHERE n.is_test = true DETACH DELETE n")
+            logger.info("\nCleaned up test data")
+            
+    except Exception as e:
+        logger.error(f"Error in test script: {str(e)}")
+    finally:
+        logger.info("Tests completed") 

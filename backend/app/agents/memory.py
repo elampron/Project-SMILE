@@ -28,7 +28,9 @@ from app.models.memory import(
     MemoryIndex,
     SemanticAttributes,
     TemporalContext,
-    MemoryRelations
+    MemoryRelations,
+    CognitiveAspect,
+    MemorySource
 )
 from app.services.neo4j import(
     create_entity_node, 
@@ -808,11 +810,280 @@ class SmileMemory:
         
         tx.run(query, type=memory_type, content=content)
 
+    def save_memory(self, memory: CognitiveMemory) -> CognitiveMemory:
+        """
+        Save a single cognitive memory directly to the knowledge graph.
+        This method bypasses the langraph workflow and allows direct memory creation.
+        
+        Args:
+            memory (CognitiveMemory): The memory to save
+            
+        Returns:
+            CognitiveMemory: The saved memory with updated database information
+            
+        Raises:
+            ValueError: If memory validation fails
+            Exception: If there's an error storing the memory
+            
+        Logs:
+            DEBUG: Memory storage details
+            ERROR: Any storage failures
+        """
+        try:
+            self.logger.debug(f"Saving cognitive memory: {memory.type} - {memory.id}")
+            
+            # Generate embedding if not present
+            if memory.embedding is None:
+                embedding_text = memory.to_embedding_text()
+                memory.embedding = self.embeddings_service.generate_embedding(embedding_text)
+            
+            # Store the memory
+            with driver.session() as session:
+                # Store the memory and get the Neo4j node ID
+                neo4j_node_id = session.execute_write(create_cognitive_memory_node, memory)
+                
+                # Update the memory index
+                session.execute_write(
+                    self.update_memory_index,
+                    memory.type,
+                    memory.content
+                )
+                
+                self.logger.debug(f"Successfully stored cognitive memory: {memory.type} - {memory.id} (Neo4j ID: {neo4j_node_id})")
+                return memory
+                
+        except ValidationError as ve:
+            self.logger.error(f"ValidationError while saving memory: {ve}")
+            raise ValueError(f"Memory validation failed: {ve}")
+            
+        except Exception as e:
+            self.logger.error(f"Error saving cognitive memory: {str(e)}")
+            raise
+
+    def get_context(self, query: str, chat_id: str = None) -> str:
+        """
+        Get contextual information based on query using a unified knowledge retrieval approach.
+        
+        Args:
+            query (str): The input query to find relevant context
+            chat_id (str, optional): Chat session identifier
+            
+        Returns:
+            str: Formatted context string
+            
+        Example response format:
+            Contextual information for your understanding:
+            
+            PINNED KNOWLEDGE:
+            - Preference (Score: 0.98)
+              content: User prefers dark mode for all applications
+              importance: 0.9
+              last_updated: 2024-03-15
+            
+            RELEVANT KNOWLEDGE:
+            - CognitiveMemory (Score: 0.95)
+              content: Meeting with John about project timeline
+              type: FACTUAL
+              importance: 0.8
+              creation_date: 2024-03-14
+            - ConversationSummary (Score: 0.92)
+              content: Discussion about family history
+              topics: ["family", "history"]
+              participants: ["user", "assistant"]
+        """
+        logger.debug(f"Getting context for query: {query}")
+        
+        # Define vector indices and their corresponding labels
+        knowledge_sources = [
+            {"label": "CognitiveMemory", "index_name": "memory_embeddings"},
+            {"label": "Preference", "index_name": "preference_vector"},
+            {"label": "ConversationSummary", "index_name": "summary_vector"},
+            {"label": "Person", "index_name": "person_vector"},
+            {"label": "Organization", "index_name": "org_vector"},
+            {"label": "Document", "index_name": "document_vector"}
+        ]
+        
+        # Collect relevant nodes from all sources
+        relevant_nodes = []
+        for source in knowledge_sources:
+            try:
+                nodes = self._search_vector_store(
+                    query=query,
+                    index_name=source["index_name"],
+                    label=source["label"]
+                )
+                relevant_nodes.extend(nodes)
+                logger.debug(f"Found {len(nodes)} nodes from {source['label']}")
+            except Exception as e:
+                logger.error(f"Error searching {source['label']}: {str(e)}")
+                continue
+            
+        # Rerank all nodes together based on relevance
+        reranked_nodes = self._rerank_nodes(query, relevant_nodes)
+        
+        # Separate into regular and pinned knowledge
+        pinned_knowledge = [n for n in reranked_nodes if n.get("node", {}).get("is_pinned", False)]
+        regular_knowledge = [n for n in reranked_nodes if not n.get("node", {}).get("is_pinned", False)]
+        
+        # Format context
+        context = "Contextual information for your understanding:\n"
+        
+        if pinned_knowledge:
+            context += "\nPINNED KNOWLEDGE:\n"
+            context += self._format_knowledge_section(pinned_knowledge)
+            
+        if regular_knowledge:
+            context += "\nRELEVANT KNOWLEDGE:\n"
+            context += self._format_knowledge_section(regular_knowledge)
+            
+        logger.debug(f"Generated context with {len(pinned_knowledge)} pinned and {len(regular_knowledge)} relevant items")
+        return context
+
+    def _search_vector_store(self, query: str, index_name: str, label: str) -> List[Dict]:
+        """
+        Search a specific vector store for relevant nodes.
+        
+        Args:
+            query (str): Search query
+            index_name (str): Name of the vector index
+            label (str): Neo4j label to search
+            
+        Returns:
+            List[Dict]: List of relevant nodes with their properties and scores
+        """
+        logger.debug(f"Searching vector store: {index_name} for label: {label}")
+        
+        try:
+            # Generate query embedding
+            query_embedding = self.embeddings_service.generate_embedding(query)
+            
+            cypher = """
+            CALL db.index.vector.queryNodes($index_name, 10, $embedding)
+            YIELD node, score
+            WHERE $label IN labels(node)
+            WITH node, score, labels(node) as labels
+            OPTIONAL MATCH (node)-[:BELONGS_TO]->(u:Person)
+            WITH node, score, labels, u,
+                 CASE 
+                    WHEN node.importance >= 0.8 THEN true
+                    WHEN node.is_pinned = true THEN true
+                    ELSE false
+                 END as is_pinned
+            RETURN node {
+                .*, 
+                is_pinned: is_pinned,
+                labels: labels,
+                user: CASE WHEN u IS NOT NULL THEN u.name ELSE null END
+            } as node, 
+            score, 
+            labels
+            LIMIT 5
+            """
+            
+            with driver.session() as session:
+                result = session.run(
+                    cypher,
+                    index_name=index_name,
+                    embedding=query_embedding,
+                    label=label
+                )
+                
+                nodes = []
+                for record in result:
+                    node_data = dict(record["node"])
+                    nodes.append({
+                        "node": node_data,
+                        "score": record["score"],
+                        "source_index": index_name
+                    })
+                
+                logger.debug(f"Found {len(nodes)} nodes in {index_name}")
+                return nodes
+                
+        except Exception as e:
+            logger.error(f"Error searching vector store {index_name}: {str(e)}")
+            raise
+
+    def _rerank_nodes(self, query: str, nodes: List[Dict]) -> List[Dict]:
+        """
+        Rerank nodes based on semantic similarity and other factors.
+        
+        Args:
+            query (str): Original search query
+            nodes (List[Dict]): List of nodes with their scores
+            
+        Returns:
+            List[Dict]: Reranked list of nodes
+        """
+        try:
+            # Sort by score and apply additional ranking factors
+            reranked = sorted(nodes, key=lambda x: (
+                x.get("score", 0),  # Primary sort by vector similarity
+                x.get("node", {}).get("importance", 0),  # Secondary sort by importance
+                x.get("node", {}).get("access_count", 0)  # Tertiary sort by access count
+            ), reverse=True)
+            
+            logger.debug(f"Reranked {len(nodes)} nodes")
+            return reranked
+            
+        except Exception as e:
+            logger.error(f"Error reranking nodes: {str(e)}")
+            return nodes  # Return original order if reranking fails
+
+    def _format_knowledge_section(self, nodes: List[Dict]) -> str:
+        """
+        Format knowledge nodes into readable sections.
+        
+        Args:
+            nodes (List[Dict]): List of knowledge nodes to format
+            
+        Returns:
+            str: Formatted string representation
+        """
+        formatted = ""
+        for node in nodes:
+            node_data = node["node"]
+            
+            # Get the primary label (excluding base labels like 'Node')
+            node_type = next((label for label in node_data.get("labels", []) 
+                            if label not in ["Node"]), "Unknown")
+            
+            # Format properties (excluding technical fields)
+            excluded_props = {
+                "embedding", "vector", "id", "labels", "isPinned",
+                "created_at", "updated_at", "access_count"
+            }
+            
+            properties = {k: v for k, v in node_data.items() 
+                        if k not in excluded_props and not k.startswith("_")}
+            
+            # Start with type and score
+            formatted += f"- {node_type} (Score: {node['score']:.2f})\n"
+            
+            # Add properties in a readable format
+            for prop, value in properties.items():
+                # Format property name to be more readable
+                prop_name = prop.replace("_", " ").title()
+                
+                # Format value based on type
+                if isinstance(value, (list, set)):
+                    formatted += f"  {prop_name}: {', '.join(map(str, value))}\n"
+                elif isinstance(value, dict):
+                    formatted += f"  {prop_name}:\n"
+                    for k, v in value.items():
+                        formatted += f"    {k}: {v}\n"
+                else:
+                    formatted += f"  {prop_name}: {value}\n"
+            
+            formatted += "\n"
+            
+        return formatted
+
 if __name__ == "__main__":
     
     def main():
         """
-        Main async function to initialize and run the memory agent.
+        Main function to test memory agent functionality.
         
         Logging:
             - Info for start/completion
@@ -823,9 +1094,38 @@ if __name__ == "__main__":
             # Initialize the memory agent
             memory_agent = SmileMemory()
 
-            # Create a test AgentState with some messages
+            # Test direct memory creation
+            test_memory = CognitiveMemory(
+                type="FACTUAL",
+                content="This is a test memory",
+                semantic=SemanticAttributes(
+                    cognitive_aspects=[CognitiveAspect.FACTUAL, CognitiveAspect.BEHAVIORAL]
+                ),
+                temporal=TemporalContext(
+                    observed_at=datetime.utcnow(),
+                    valid_from=datetime.utcnow()
+                ),
+                validation=ValidationStatus(
+                    is_valid=True,
+                    validation_source=MemorySource.DIRECT_OBSERVATION,
+                    validation_timestamp=datetime.utcnow()
+                ),
+                relations=MemoryRelations(
+                    related_entities=[],
+                    related_summaries=[],
+                    related_preferences=[],
+                    associations=[]
+                ),
+                access_count=0,
+                version=1
+            )
+
+            # Save the test memory
+            saved_memory = memory_agent.save_memory(test_memory)
+            logger.info(f"Test memory saved successfully: {saved_memory.id}")
+
+            # Test the langraph workflow as well
             state = {"messages": []}
-            
             config = {
                 "configurable": {
                     "thread_id": settings.app_config["langchain_config"]["thread_id"], 
@@ -833,7 +1133,7 @@ if __name__ == "__main__":
                 }
             }
             
-            # Await the async execute_graph call
+            # Run the graph workflow
             response = memory_agent.execute_graph(state=state, config=config)
             logger.info("Memory agent execution completed successfully")
             return response

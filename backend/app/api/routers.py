@@ -3,12 +3,15 @@ from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any, List
 import logging
 from app.agents.smile import Smile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.configs.settings import settings
 import yaml
 import os
 import json
 from fastapi.encoders import jsonable_encoder
+from app.services.neo4j import driver
+from app.services.embeddings import EmbeddingsService
+from app.services.knowledge_search import KnowledgeSearchService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +35,18 @@ async def get_smile():
 class UpdateSettingsRequest(BaseModel):
     config_type: str  # Either "app_config" or "llm_config"
     settings_data: Dict[str, Any]
+
+class KnowledgeSearchRequest(BaseModel):
+    """Request model for knowledge search endpoint."""
+    query: str = Field(description="The search query to find relevant knowledge")
+    node_labels: Optional[List[str]] = Field(
+        None,
+        description="Optional list of node labels to search (e.g., ['Preference', 'Summary', 'Person', 'Organization', 'Document', 'CognitiveMemory'])"
+    )
+    limit: Optional[int] = Field(
+        5,
+        description="Maximum number of results to return. Defaults to 5."
+    )
 
 # Original chat endpoint for JSON requests
 @router.post("/chat/json")
@@ -311,12 +326,11 @@ async def startup_event():
     global smile
     try:
         # Create vector indexes first
-        from app.services.embeddings import EmbeddingsService
-        from app.services.neo4j import driver
+        from app.services.neo4j import driver, create_vector_indexes
         
         logger.info("Creating vector indexes...")
-        embeddings_service = EmbeddingsService(driver)
-        embeddings_service.create_vector_indexes()
+        with driver.session() as session:
+            create_vector_indexes(session)
         logger.info("Vector indexes created successfully")
         
         # Then initialize Smile agent
@@ -338,3 +352,56 @@ async def shutdown_event():
     except Exception as e:
         logger.error(f"Error during Smile agent cleanup: {str(e)}", exc_info=True)
         raise
+
+@router.post("/knowledge/search")
+async def search_knowledge(
+    request: KnowledgeSearchRequest,
+    smile_agent: Smile = Depends(get_smile)
+):
+    """
+    Search for knowledge across different node types in the knowledge base.
+    
+    Args:
+        request: The search request containing query and optional filters
+        
+    Returns:
+        dict: Search results with relevance scores
+    """
+    try:
+        # Initialize services
+        embeddings_service = EmbeddingsService(driver)
+        knowledge_service = KnowledgeSearchService(driver, embeddings_service)
+        
+        # Prepare filters
+        filters = {"node_types": request.node_labels} if request.node_labels else None
+        
+        # Execute search
+        results = knowledge_service.search_knowledge(
+            query=request.query,
+            filters=filters,
+            limit=request.limit
+        )
+        
+        # Format results for API response
+        formatted_results = []
+        for result in results:
+            # Convert any datetime objects to strings for JSON serialization
+            if 'created_at' in result and result['created_at']:
+                result['created_at'] = result['created_at'].isoformat()
+            if 'updated_at' in result and result['updated_at']:
+                result['updated_at'] = result['updated_at'].isoformat()
+                
+            # Remove embedding from response to reduce payload size
+            if 'embedding' in result:
+                del result['embedding']
+                
+            formatted_results.append(result)
+        
+        return {
+            "status": "success",
+            "data": formatted_results
+        }
+        
+    except Exception as e:
+        logger.error(f"Error searching knowledge: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error searching knowledge: {str(e)}")

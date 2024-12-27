@@ -33,7 +33,7 @@ driver = GraphDatabase.driver(
 )
 
 # Initialize embeddings service
-embeddings_service = EmbeddingsService(driver)
+embeddings_service = EmbeddingsService()
 
 def create_entity_node(tx, entity):
     """
@@ -200,6 +200,7 @@ def create_summary_node(tx, summary: ConversationSummary):
     # Add embedding to properties
     properties['embedding'] = summary.embedding
     
+    # Create the summary node
     query = """
     CREATE (s:Summary {
         id: $id,
@@ -215,87 +216,120 @@ def create_summary_node(tx, summary: ConversationSummary):
     """
     tx.run(query, **properties)
 
-def create_summary_relationships(tx, summary: ConversationSummary):
-    """
-    Create relationships between Summary node and its related nodes in Neo4j.
-    Handles participants, action items, sentiments, topics, and entities.
-    """
-    # Create relationships to participants
+    # Create relationships for participants using PersonEntity
     for participant in summary.participants:
-        participant_name = participant.name
-        # Merge participant node
-        participant_query = """
-        MERGE (p:Person {name: $name})
-        RETURN p
-        """
-        tx.run(participant_query, name=participant_name)
+        # Create person entity
+        person_obj = PersonEntity(
+            name=participant.name,
+            type="Person",
+            category="Participant",
+            notes=f"Participant in summary {summary.id}"
+        )
+        
+        # Use create_entity_node to create/update the person
+        person_id = create_entity_node(tx, person_obj)
+        
         # Create relationship
         relationship_query = """
-        MATCH (s:Summary {id: $summary_id}), (p:Person {name: $name})
-        CREATE (s)-[:INVOLVES]->(p)
+        MATCH (s:Summary {id: $summary_id})
+        MATCH (p) WHERE p.id = $person_id
+        MERGE (s)-[:INVOLVES]->(p)
         """
-        tx.run(relationship_query, summary_id=str(summary.id), name=participant_name)
+        tx.run(relationship_query, summary_id=str(summary.id), person_id=person_id)
     
     # Create relationships for topics
     for topic in summary.topics:
-        # Merge topic node
         topic_query = """
         MERGE (t:Topic {name: $name})
-        RETURN t
-        """
-        tx.run(topic_query, name=topic)
-        # Create relationship
-        relationship_query = """
-        MATCH (s:Summary {id: $summary_id}), (t:Topic {name: $name})
+        WITH t
+        MATCH (s:Summary {id: $summary_id})
         MERGE (s)-[:COVERS_TOPIC]->(t)
         """
-        tx.run(relationship_query, summary_id=str(summary.id), name=topic)
+        tx.run(topic_query, name=topic, summary_id=str(summary.id))
     
-    # Create relationships for entities (from participants and events)
-    entities = set()
-    # Add participants as entities
-    for participant in summary.participants:
-        entities.add(participant.name)
-    # Extract entities from events (assuming they are mentioned in events)
+    # Create relationships for entities from events
     for event in summary.events:
-        # You might want to use NER here to extract entities from events
-        # For now, we'll just add the event text as an entity
-        entities.add(event)
-    
-    for entity in entities:
-        # Merge entity node
-        entity_query = """
-        MERGE (e:Entity {name: $name})
-        RETURN e
-        """
-        tx.run(entity_query, name=entity)
+        # Create entity from event
+        entity_obj = PersonEntity(  # Using PersonEntity as base since we don't know the type
+            name=event,
+            type="Event",
+            category="Summary Event",
+            notes=f"Event from summary {summary.id}"
+        )
+        
+        # Use create_entity_node to create/update the entity
+        entity_id = create_entity_node(tx, entity_obj)
+        
         # Create relationship
         relationship_query = """
-        MATCH (s:Summary {id: $summary_id}), (e:Entity {name: $name})
-        MERGE (s)-[:MENTIONS_ENTITY]->(e)
+        MATCH (s:Summary {id: $summary_id})
+        MATCH (e) WHERE e.id = $entity_id
+        MERGE (s)-[:CONTAINS_EVENT]->(e)
         """
-        tx.run(relationship_query, summary_id=str(summary.id), name=entity)
+        tx.run(relationship_query, summary_id=str(summary.id), entity_id=entity_id)
     
     # Create relationships for action items
     for action_item in summary.action_items:
+        # Create action item node with proper properties
         action_query = """
         CREATE (a:ActionItem {
             description: $description,
             assignee: $assignee,
-            due_date: date($due_date)
+            due_date: CASE 
+                WHEN $due_date IS NOT NULL 
+                THEN date($due_date) 
+                ELSE null 
+            END,
+            status: $status
         })
+        WITH a
+        MATCH (s:Summary {id: $summary_id})
+        MERGE (s)-[:HAS_ACTION_ITEM]->(a)
         """
-        tx.run(action_query, 
-            description=action_item.description, 
-            assignee=action_item.assignee, 
-            due_date=action_item.due_date.isoformat() if action_item.due_date else None
-        )
-        # Create relationship
-        relationship_query = """
-        MATCH (s:Summary {id: $summary_id}), (a:ActionItem {description: $description})
-        CREATE (s)-[:HAS_ACTION_ITEM]->(a)
-        """
-        tx.run(relationship_query, summary_id=str(summary.id), description=action_item.description)
+        
+        # If assignee is specified, create person entity and relationship
+        if action_item.assignee:
+            # Create person entity for assignee
+            assignee_obj = PersonEntity(
+                name=action_item.assignee,
+                type="Person",
+                category="Action Item Assignee",
+                notes=f"Assignee for action item in summary {summary.id}"
+            )
+            
+            # Use create_entity_node to create/update the assignee
+            assignee_id = create_entity_node(tx, assignee_obj)
+            
+            # Create action item with assignee relationship
+            tx.run(action_query, 
+                description=action_item.description,
+                assignee=action_item.assignee,
+                due_date=action_item.due_date.isoformat() if action_item.due_date else None,
+                status=action_item.status,
+                summary_id=str(summary.id)
+            )
+            
+            # Create relationship between action item and assignee
+            assignee_relationship_query = """
+            MATCH (s:Summary {id: $summary_id})
+            MATCH (a:ActionItem {description: $description})
+            MATCH (p) WHERE p.id = $assignee_id
+            MERGE (a)-[:ASSIGNED_TO]->(p)
+            """
+            tx.run(assignee_relationship_query,
+                summary_id=str(summary.id),
+                description=action_item.description,
+                assignee_id=assignee_id
+            )
+        else:
+            # Create action item without assignee
+            tx.run(action_query,
+                description=action_item.description,
+                assignee=None,
+                due_date=action_item.due_date.isoformat() if action_item.due_date else None,
+                status=action_item.status,
+                summary_id=str(summary.id)
+            )
 
 def fetch_existing_preference_types(tx):
     """Get all existing preference types from Neo4j."""
@@ -604,18 +638,14 @@ def create_cognitive_memory_node(tx: ManagedTransaction, memory: CognitiveMemory
     create_query = """
     CREATE (m:CognitiveMemory)
     SET m = $properties
-    RETURN m {
-        .*, 
-        embedding: null
-    } as m
+    RETURN id(m) as node_id
     """
     memory_result = tx.run(create_query, properties=properties).single()
     
     if not memory_result:
         raise ValueError("Failed to create memory node")
         
-    memory_node = memory_result['m']
-    memory_id = memory_node.id  # This is Neo4j's internal node ID
+    memory_id = memory_result["node_id"]  # Get Neo4j's internal node ID
     
     # Link memory to the user (assuming user's node exists)
     link_to_user_query = """
@@ -628,50 +658,71 @@ def create_cognitive_memory_node(tx: ManagedTransaction, memory: CognitiveMemory
     # Extract and link to mentioned entities
     if 'entities' in context:
         for entity in context['entities']:
-            # Convert entity properties to primitive types
-            entity_props = {
-                'name': entity.get('name'),
-                'type': entity.get('type'),
-                'source': entity.get('source', 'memory')
-            }
-            # Try to find existing entity or create new one
-            entity_query = """
-            MERGE (e:Entity {name: $name, type: $type})
-            ON CREATE SET e += $properties
-            WITH e
+            entity_type = entity.get('type', 'Unknown')
+            
+            # Create appropriate entity based on type
+            if entity_type.lower() == 'person':
+                entity_obj = PersonEntity(
+                    name=entity.get('name'),
+                    type="Person",
+                    category=entity.get('category', 'Unknown'),
+                    nickname=entity.get('nickname'),
+                    birth_date=entity.get('birth_date'),
+                    email=entity.get('email'),
+                    phone=entity.get('phone'),
+                    address=entity.get('address'),
+                    notes=entity.get('notes', f"Created from memory {memory.id}")
+                )
+            elif entity_type.lower() == 'organization':
+                entity_obj = OrganizationEntity(
+                    name=entity.get('name'),
+                    type="Organization",
+                    org_type=entity.get('org_type', 'Unknown'),
+                    industry=entity.get('industry'),
+                    location=entity.get('location'),
+                    website=entity.get('website'),
+                    notes=entity.get('notes', f"Created from memory {memory.id}")
+                )
+            else:
+                # For other entity types, use base entity structure
+                entity_obj = PersonEntity(  # Using PersonEntity as base
+                    name=entity.get('name'),
+                    type=entity_type,
+                    category='Other',
+                    notes=entity.get('notes', f"Created from memory {memory.id}")
+                )
+            
+            # Use create_entity_node to create/update the entity
+            entity_id = create_entity_node(tx, entity_obj)
+            
+            # Create relationship between memory and entity
+            memory_entity_query = """
             MATCH (m:CognitiveMemory) WHERE id(m) = $memory_id
+            MATCH (e) WHERE e.id = $entity_id
             MERGE (m)-[:MENTIONS]->(e)
             """
-            tx.run(
-                entity_query,
-                name=entity_props['name'],
-                type=entity_props['type'],
-                properties=entity_props,
-                memory_id=memory_id
-            )
+            tx.run(memory_entity_query, memory_id=memory_id, entity_id=entity_id)
     
-    # Link to people involved
+    # Link to people involved - using PersonEntity
     if 'participants' in context:
         for person in context['participants']:
-            # Convert person properties to primitive types
-            person_props = {
-                'name': person.get('name'),
-                'role': person.get('role'),
-                'source': person.get('source', 'memory')
-            }
-            person_query = """
-            MERGE (p:Person {name: $name})
-            ON CREATE SET p += $properties
-            WITH p
+            person_obj = PersonEntity(
+                name=person.get('name'),
+                type="Person",
+                category=person.get('role', 'Participant'),
+                notes=person.get('notes', f"Participant in memory {memory.id}")
+            )
+            
+            # Use create_entity_node to create/update the person
+            person_id = create_entity_node(tx, person_obj)
+            
+            # Create relationship between memory and person
+            memory_person_query = """
             MATCH (m:CognitiveMemory) WHERE id(m) = $memory_id
+            MATCH (p) WHERE p.id = $person_id
             MERGE (m)-[:INVOLVES]->(p)
             """
-            tx.run(
-                person_query,
-                name=person_props['name'],
-                properties=person_props,
-                memory_id=memory_id
-            )
+            tx.run(memory_person_query, memory_id=memory_id, person_id=person_id)
     
     # Link to topics
     if 'topics' in context:
@@ -714,6 +765,9 @@ def create_cognitive_memory_node(tx: ManagedTransaction, memory: CognitiveMemory
         SET r.similarity = toFloat(similarity_score)
         """
         tx.run(related_memories_query, memory_id=memory_id)
+    
+    # Return the memory ID
+    return memory_id
 
 def get_similar_memories(tx: ManagedTransaction, text: str, limit: int = 5) -> List[CognitiveMemory]:
     """
@@ -894,34 +948,47 @@ def initialize_schema_with_session(session: Session) -> None:
         ))
         logger.debug("Regular index check/creation completed")
         
-        # Check if vector index exists before trying to create it
-        vector_index_exists = session.execute_read(
-            lambda tx: check_if_index_exists(tx, "memory_embeddings")
-        )
+        # Define vector indices to create
+        vector_indices = [
+            ("memory_embeddings", "CognitiveMemory"),
+            ("person_vector", "Person"),
+            ("org_vector", "Organization"),
+            ("document_vector", "Document"),
+            ("preference_vector", "Preference"),
+            ("summary_vector", "Summary")
+        ]
         
-        if not vector_index_exists:
-            logger.debug("Vector index does not exist, creating it...")
-            try:
-                session.execute_write(lambda tx: tx.run(
-                    """
-                    CALL db.index.vector.createNodeIndex(
-                        'memory_embeddings',
-                        'CognitiveMemory',
-                        'embedding',
-                        1536,
-                        'cosine'
-                    )
-                    """
-                ))
-                logger.info("Vector index created successfully")
-            except Exception as e:
-                if "EquivalentSchemaRuleAlreadyExistsException" in str(e):
-                    logger.debug("Vector index already exists (race condition)")
-                else:
-                    logger.error(f"Error creating vector index: {str(e)}")
-                    raise
-        else:
-            logger.debug("Vector index already exists, skipping creation")
+        # Create each vector index if it doesn't exist
+        for index_name, node_label in vector_indices:
+            vector_index_exists = session.execute_read(
+                lambda tx: check_if_index_exists(tx, index_name)
+            )
+            
+            if not vector_index_exists:
+                logger.debug(f"Vector index {index_name} does not exist, creating it...")
+                try:
+                    session.execute_write(lambda tx: tx.run(
+                        """
+                        CALL db.index.vector.createNodeIndex(
+                            $index_name,
+                            $node_label,
+                            'embedding',
+                            1536,
+                            'cosine'
+                        )
+                        """,
+                        index_name=index_name,
+                        node_label=node_label
+                    ))
+                    logger.info(f"Vector index {index_name} created successfully")
+                except Exception as e:
+                    if "EquivalentSchemaRuleAlreadyExistsException" in str(e):
+                        logger.debug(f"Vector index {index_name} already exists (race condition)")
+                    else:
+                        logger.error(f"Error creating vector index {index_name}: {str(e)}")
+                        raise
+            else:
+                logger.debug(f"Vector index {index_name} already exists, skipping creation")
         
         logger.info("Successfully completed schema initialization")
         
@@ -987,3 +1054,343 @@ def exclude_embedding_from_properties(properties: dict) -> dict:
     if properties and 'embedding' in properties:
         del properties['embedding']
     return properties
+
+def vector_similarity_search(
+    session: Session,
+    index_name: str,
+    query_vector: List[float],
+    k: int = 10,
+    min_score: float = 0.7,
+    additional_filters: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Perform vector similarity search using Neo4j vector index.
+    
+    Args:
+        session: Neo4j session
+        index_name: Name of the vector index to search
+        query_vector: Query vector to search with
+        k: Number of results to return
+        min_score: Minimum similarity score threshold
+        additional_filters: Optional Cypher WHERE clause for additional filtering
+        
+    Returns:
+        List of dictionaries containing nodes and their similarity scores
+    """
+    try:
+        # Build base query
+        query = """
+        CALL db.index.vector.queryNodes(
+            $index_name,
+            $k,
+            $query_vector
+        ) YIELD node, score
+        WHERE score >= $min_score
+        """
+        
+        # Add additional filters if provided
+        if additional_filters:
+            query += f"\nWHERE {additional_filters}"
+            
+        # Complete the query
+        query += """
+        RETURN node {.*, embedding: null} AS node, score
+        ORDER BY score DESC
+        """
+        
+        result = session.run(
+            query,
+            index_name=index_name,
+            k=k,
+            query_vector=query_vector,
+            min_score=min_score
+        )
+        
+        return [{"node": record["node"], "score": record["score"]} for record in result]
+            
+    except Exception as e:
+        logger.error(f"Error performing vector similarity search: {str(e)}")
+        raise
+
+def get_related_entities(
+    session: Session,
+    node_id: str,
+    relationship_types: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Get entities related to a specific node.
+    
+    Args:
+        session: Neo4j session
+        node_id: ID of the node to find relations for
+        relationship_types: Optional list of relationship types to filter by
+        
+    Returns:
+        List of related entity nodes
+    """
+    try:
+        # Build relationship type filter
+        rel_filter = ""
+        if relationship_types:
+            rel_types = "|".join(f":{rel_type}" for rel_type in relationship_types)
+            rel_filter = f"[{rel_types}]"
+            
+        query = f"""
+        MATCH (n)-{rel_filter}-(related)
+        WHERE n.id = $node_id
+        RETURN DISTINCT related {{.*, embedding: null}} as entity
+        """
+        
+        result = session.run(query, node_id=node_id)
+        return [record["entity"] for record in result]
+        
+    except Exception as e:
+        logger.error(f"Error getting related entities: {str(e)}")
+        raise
+
+def create_vector_indexes(session: Session) -> None:
+    """
+    Create all necessary vector indexes in Neo4j.
+    This should be called during application initialization.
+    
+    Args:
+        session: Neo4j session
+    """
+    # Define all vector indexes with their correct names
+    indexes = [
+        ("Preference", "preference_vector", "embedding", 1536),
+        ("Summary", "summary_vector", "embedding", 1536),
+        ("Person", "person_vector", "embedding", 1536),
+        ("Organization", "org_vector", "embedding", 1536),
+        ("Document", "document_vector", "embedding", 1536),
+        ("CognitiveMemory", "memory_embeddings", "embedding", 1536)
+    ]
+    
+    for label, index_name, property_name, dimensions in indexes:
+        try:
+            query = """
+            CALL db.index.vector.createNodeIndex(
+                $index_name,
+                $label,
+                $property_name,
+                $dimensions,
+                'cosine'
+            )
+            """
+            session.run(
+                query,
+                index_name=index_name,
+                label=label,
+                property_name=property_name,
+                dimensions=dimensions
+            )
+            logger.info(f"Created vector index {index_name} for {label} nodes")
+        except Exception as e:
+            if "An equivalent index already exists" in str(e):
+                logger.debug(f"Vector index {index_name} already exists")
+            else:
+                logger.error(f"Error creating vector index {index_name}: {str(e)}")
+                raise
+
+def create_summary_relationships(tx: ManagedTransaction, summary: ConversationSummary) -> None:
+    """
+    Create relationships between a summary node and its related entities.
+    
+    Args:
+        tx (ManagedTransaction): Neo4j transaction
+        summary (ConversationSummary): Summary to create relationships for
+        
+    The function creates the following relationships:
+    - (Summary)-[:INVOLVES]->(Person)  # For participants
+    - (Summary)-[:COVERS_TOPIC]->(Topic)  # For topics
+    - (Summary)-[:CONTAINS_EVENT]->(Event)  # For events
+    - (Summary)-[:HAS_ACTION_ITEM]->(ActionItem)  # For action items
+    """
+    # Create relationships for participants
+    for participant in summary.participants:
+        # Create person entity
+        person_obj = PersonEntity(
+            name=participant.name,
+            type="Person",
+            category="Participant",
+            notes=f"Participant in summary {summary.id}"
+        )
+        
+        # Use create_entity_node to create/update the person
+        person_id = create_entity_node(tx, person_obj)
+        
+        # Create relationship
+        relationship_query = """
+        MATCH (s:Summary {id: $summary_id})
+        MATCH (p) WHERE p.id = $person_id
+        MERGE (s)-[:INVOLVES]->(p)
+        """
+        tx.run(relationship_query, summary_id=str(summary.id), person_id=person_id)
+    
+    # Create relationships for topics
+    for topic in summary.topics:
+        topic_query = """
+        MERGE (t:Topic {name: $name})
+        WITH t
+        MATCH (s:Summary {id: $summary_id})
+        MERGE (s)-[:COVERS_TOPIC]->(t)
+        """
+        tx.run(topic_query, name=topic, summary_id=str(summary.id))
+    
+    # Create relationships for events
+    for event in summary.events:
+        # Create entity from event
+        entity_obj = PersonEntity(  # Using PersonEntity as base since we don't know the type
+            name=event,
+            type="Event",
+            category="Summary Event",
+            notes=f"Event from summary {summary.id}"
+        )
+        
+        # Use create_entity_node to create/update the entity
+        entity_id = create_entity_node(tx, entity_obj)
+        
+        # Create relationship
+        relationship_query = """
+        MATCH (s:Summary {id: $summary_id})
+        MATCH (e) WHERE e.id = $entity_id
+        MERGE (s)-[:CONTAINS_EVENT]->(e)
+        """
+        tx.run(relationship_query, summary_id=str(summary.id), entity_id=entity_id)
+    
+    # Create relationships for action items
+    for action_item in summary.action_items:
+        # Create action item node with proper properties
+        action_query = """
+        CREATE (a:ActionItem {
+            description: $description,
+            assignee: $assignee,
+            due_date: CASE 
+                WHEN $due_date IS NOT NULL 
+                THEN date($due_date) 
+                ELSE null 
+            END,
+            status: $status
+        })
+        WITH a
+        MATCH (s:Summary {id: $summary_id})
+        MERGE (s)-[:HAS_ACTION_ITEM]->(a)
+        """
+        
+        # If assignee is specified, create person entity and relationship
+        if action_item.assignee:
+            # Create person entity for assignee
+            assignee_obj = PersonEntity(
+                name=action_item.assignee,
+                type="Person",
+                category="Action Item Assignee",
+                notes=f"Assignee for action item in summary {summary.id}"
+            )
+            
+            # Use create_entity_node to create/update the assignee
+            assignee_id = create_entity_node(tx, assignee_obj)
+            
+            # Create action item with assignee relationship
+            tx.run(action_query, 
+                description=action_item.description,
+                assignee=action_item.assignee,
+                due_date=action_item.due_date.isoformat() if action_item.due_date else None,
+                status=action_item.status,
+                summary_id=str(summary.id)
+            )
+            
+            # Create relationship between action item and assignee
+            assignee_relationship_query = """
+            MATCH (s:Summary {id: $summary_id})
+            MATCH (a:ActionItem {description: $description})
+            MATCH (p) WHERE p.id = $assignee_id
+            MERGE (a)-[:ASSIGNED_TO]->(p)
+            """
+            tx.run(assignee_relationship_query,
+                summary_id=str(summary.id),
+                description=action_item.description,
+                assignee_id=assignee_id
+            )
+        else:
+            # Create action item without assignee
+            tx.run(action_query,
+                description=action_item.description,
+                assignee=None,
+                due_date=action_item.due_date.isoformat() if action_item.due_date else None,
+                status=action_item.status,
+                summary_id=str(summary.id)
+            )
+
+if __name__ == "__main__":
+    """
+    Test script for Neo4j vector operations
+    """
+    import logging
+    from app.services.embeddings import EmbeddingsService
+    
+    # Configure logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Initialize services
+        embeddings_service = EmbeddingsService(driver)
+        
+        with driver.session() as session:
+            # Test 1: Create vector indexes
+            logger.info("\nTest 1: Creating vector indexes...")
+            create_vector_indexes(session)
+            
+            # Test 2: Create test nodes with embeddings
+            logger.info("\nTest 2: Creating test nodes...")
+            test_memory = {
+                "id": "test-memory-1",
+                "content": "This is a test memory about AI and machine learning",
+                "importance": 3,
+                "created_at": "2024-01-01",
+                "is_test": True,
+                "embedding": embeddings_service.generate_embedding("This is a test memory about AI and machine learning")
+            }
+            
+            session.run("""
+                CREATE (m:CognitiveMemory)
+                SET m = $properties
+                """,
+                properties=test_memory
+            )
+            
+            # Test 3: Perform vector similarity search
+            logger.info("\nTest 3: Testing vector similarity search...")
+            query_embedding = embeddings_service.generate_embedding("Tell me about AI")
+            results = vector_similarity_search(
+                session=session,
+                index_name="memory_embeddings",
+                query_vector=query_embedding,
+                k=5,
+                min_score=0.7
+            )
+            
+            if results:
+                logger.info(f"Found {len(results)} results:")
+                for result in results:
+                    logger.info(f"Score: {result['score']}")
+                    logger.info(f"Content: {result['node'].get('content')}\n")
+            else:
+                logger.info("No results found")
+            
+            # Test 4: Get related entities
+            logger.info("\nTest 4: Testing related entities retrieval...")
+            related = get_related_entities(
+                session=session,
+                node_id="test-memory-1"
+            )
+            logger.info(f"Found {len(related)} related entities")
+            
+            # Cleanup test data
+            logger.info("\nCleaning up test data...")
+            session.run("MATCH (n) WHERE n.is_test = true DETACH DELETE n")
+            
+    except Exception as e:
+        logger.error(f"Error in test script: {str(e)}")
+    finally:
+        logger.info("Tests completed")

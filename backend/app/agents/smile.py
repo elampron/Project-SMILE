@@ -1,5 +1,7 @@
+# app/agents/smile.py
 import logging
 from typing import Annotated, Sequence, TypedDict, Dict, List, Generator
+from app.services.neo4j.users import get_user_by_email
 from typing_extensions import Literal
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -33,6 +35,7 @@ from pathlib import Path
 import os
 from langchain.tools import StructuredTool
 from pydantic import BaseModel
+from app.utils.logger import logger
 
 
 
@@ -45,11 +48,9 @@ class Smile:
             ValueError: If required main user config is missing
         """
         self.settings = settings
-        self.logger = logging.getLogger(__name__)
-        self.logger.info("Smile class logger initialized")
         
-        # Initialize main user
-        self._initialize_main_user()
+        # Create a logger
+        self.logger = logger
         
         # Initialize basic attributes
         self.chatbot_agent_llm = llm_factory(self.settings,"chatbot_agent")
@@ -63,11 +64,59 @@ class Smile:
         self._initialized = False
         self._saver = None
         self.context_manager = ContextManager(driver)
-        self.embeddings_service = EmbeddingsService(driver)
+        self.embeddings_service = EmbeddingsService()
         
         # Create attachments directory if it doesn't exist
         self.attachments_dir = Path("library/attachments")
         self.attachments_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize main user
+        self._initialize_main_user()
+
+    def _initialize_main_user(self):
+        """
+        Initialize the main user from config and persist to Neo4j.
+        Creates or updates both User and PersonEntity records.
+        """
+        try:
+            # Get main user config
+            user_config = self.settings.app_config.get("main_user")
+            langchain_config = self.settings.app_config.get("langchain_config")
+            if not user_config:
+                raise ValueError("Main user configuration is missing in app_config.yaml")
+
+            # Create User instance
+            self.main_user = User(
+                name=user_config["name"],
+                main_email=user_config["main_email"]
+            )
+            self.thread_id = langchain_config["thread_id"]
+
+            # Persist user to Neo4j and get updated user with person_id
+            with driver.session() as session:
+                # First check if user exists
+                existing_user = session.execute_read(
+                    get_user_by_email,
+                    self.main_user.main_email
+                )
+                
+                if existing_user:
+                    self.main_user = existing_user
+                    self.logger.info(f"Using existing main user: {self.main_user.name}")
+                    return
+
+                # Create/update user record only if it doesn't exist
+                # This will also create the corresponding Person node
+                self.main_user = session.execute_write(
+                    create_or_update_user, 
+                    self.main_user
+                )
+                
+                self.logger.info(f"Main user initialized: {self.main_user.name}")
+                
+        except Exception as e:
+            self.logger.error(f"Failed to initialize main user: {str(e)}")
+            raise
 
     def save_document(self, content: str, filename: str) -> Attachment:
         """
@@ -437,55 +486,6 @@ class Smile:
                         
         except Exception as e:
             self.logger.error(f"Error during streaming: {str(e)}", exc_info=True)
-            raise
-
-    def _initialize_main_user(self):
-        """
-        Initialize the main user from config and persist to Neo4j.
-        Creates or updates both User and PersonEntity records.
-        """
-        try:
-            # Get main user config
-            user_config = self.settings.app_config.get("main_user")
-            langchain_config = self.settings.app_config.get("langchain_config")
-            if not user_config:
-                raise ValueError("Main user configuration is missing in app_config.yaml")
-
-            # Create User instance
-            self.main_user = User(
-                name=user_config["name"],
-                main_email=user_config["main_email"]
-            )
-            self.thread_id = langchain_config["thread_id"]
-
-            # Persist user to Neo4j and get updated user with person_id
-            with driver.session() as session:
-                # Create/update user record
-                self.main_user = session.execute_write(
-                    create_or_update_user, 
-                    self.main_user
-                )
-                
-                # Create/update person entity if person details provided
-                if person_details := user_config.get("person_details"):
-                    
-                    self.main_user_person = session.execute_write(
-                        get_or_create_person_entity,
-                        person_details
-                    )
-                    
-                    # Update user with person_id if needed
-                    if not self.main_user.person_id:
-                        self.main_user.person_id = self.main_user_person.id
-                        self.main_user = session.execute_write(
-                            create_or_update_user,
-                            self.main_user
-                        )
-
-            self.logger.info(f"Main user initialized: {self.main_user.name}")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to initialize main user: {str(e)}")
             raise
 
     def format_messages_for_model(self, state: AgentState):

@@ -1,10 +1,11 @@
+# app/agents/memory.py
 import asyncio
 from datetime import datetime
 import json
 import logging
 import os
 from uuid import UUID, uuid4
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, AIMessage
 from langgraph.graph import StateGraph, END
@@ -47,8 +48,12 @@ from pydantic import ValidationError
 from langchain_core.messages.modifier import RemoveMessage
 import uuid
 import tiktoken
+from app.services.neo4j.entities import get_or_create_person_entity, create_entity_node
+from app.services.neo4j.relationships import create_entity_relationship
+from neo4j import ManagedTransaction
 
-logger = logging.getLogger(__name__)
+
+from app.utils.logger import logger
 
 load_dotenv()
 
@@ -67,20 +72,13 @@ class SmileMemory:
         self._initialized = False
         self._saver = None
         self.graph = None
-        self.embeddings_service = EmbeddingsService(driver)
+        self.embeddings_service = EmbeddingsService()
         
-        # Initialize schemas
-        with driver.session() as session:
-            try:
-                initialize_schema_with_session(session)
-                logger.info("Successfully initialized cognitive memory schema")
-            except Exception as e:
-                logger.error(f"Failed to initialize schema: {str(e)}")
-                raise
-      
+        # Schema initialization is now handled by API startup
+        # No need to initialize here
 
     def initialize(self):
-        """Initialize PostgreSQL checkpointer and set up tables."""
+        """Initialize the memory system."""
         try:
             if not self._initialized:
                 try:
@@ -111,6 +109,7 @@ class SmileMemory:
                         f"Error details: {str(pg_error)}"
                     )
                     raise
+                
                 if self.graph is None:
                     self._initialize_graph()
                 self._initialized = True
@@ -162,6 +161,55 @@ class SmileMemory:
         self.cognitive_memory_extractor_llm = self.cognitive_memory_extractor_llm.with_structured_output(CognitiveMemory)
         self.cognitive_memory_extractor_chain = self.cognitive_memory_extractor_prompt | self.cognitive_memory_extractor_llm
 
+    def _extract_entities(self, messages: List[BaseMessage]) -> Optional[EntityExtractorResponse]:
+        """
+        Extract entities from a batch of messages.
+        
+        Args:
+            messages (List[BaseMessage]): Messages to process
+            
+        Returns:
+            Optional[EntityExtractorResponse]: Extracted entities or None if extraction fails
+            
+        Raises:
+            ValidationError: If response validation fails
+            Exception: For other unexpected errors
+            
+        Logging:
+            - Debug logs for LLM invocation
+            - Error logs for validation and unexpected errors
+        """
+        max_retries = 3
+        retry_count = 0
+        examples = get_entity_extraction_examples()
+
+        while retry_count < max_retries:
+            try:
+                # Convert messages to conversation text
+                conversation_text = prepare_conversation_data(messages)
+                
+                # Create prompt variables
+                prompt_variables = {
+                    "conversation_text": json.dumps(conversation_text, indent=2),
+                    "examples": examples
+                }
+                
+                # Invoke the chain with the variables dictionary
+                self.logger.debug(f"Invoking Entity Extractor LLM with prompt variables: {prompt_variables}")
+                response = self.entity_extractor_chain.invoke(prompt_variables)
+                return response
+
+            except ValidationError as ve:
+                retry_count += 1
+                self.logger.error(f"ValidationError on attempt {retry_count}: {ve}")
+                if retry_count >= max_retries:
+                    self.logger.error("Max retries reached. Unable to process message batch.")
+                    raise
+                continue
+            except Exception as e:
+                self.logger.exception(f"An unexpected error occurred: {e}")
+                raise
+
     def _initialize_graph(self):
         """Initialize the agent graph with tools and checkpointer."""
         self.logger.info("Initializing agent graph")
@@ -189,144 +237,74 @@ class SmileMemory:
         )
 
     def process_entity_extraction_batch(self, messages: List[BaseMessage]):
-        """
-        Process a batch of SmileMessage instances, extract entities and relationships,
-        and store them in the Neo4j database.
-        
-        Args:
-            messages (List[SmileMessage]): List of SmileMessage instances to process.
-            state (AgentState): The agent's current state.
-
-        Logging:
-            - Info when processing messages.
-            - Error when exceptions occur.
-            - Debug for detailed internal states.
-        """
-        max_retries = 3
-        retry_count = 0
-        examples = get_entity_extraction_examples()
-
-        while retry_count < max_retries:
-            try:
-                # Convert messages to conversation text
-                conversation_text = prepare_conversation_data(messages)
-                
-                # Create a dictionary with the required variables
-                prompt_variables = {
-                    "conversation_text": conversation_text,
-                    "examples": examples
-                }
-                
-                # Invoke the chain with the variables dictionary
-                self.logger.debug(f"Invoking LLM with prompt variables: {prompt_variables}")
-                response = self.entity_extractor_chain.invoke(prompt_variables)
-                break
-
-            except ValidationError as ve:
-                retry_count += 1
-                self.logger.error(f"ValidationError on attempt {retry_count}: {ve}")
-                if retry_count >= max_retries:
-                    self.logger.error("Max retries reached. Unable to process message batch.")
-                    raise
-                continue
-            except Exception as e:
-                self.logger.exception(f"An unexpected error occurred: {e}")
-                raise
-
-        # Proceed with processing the response
-        entity_map = {}
-
-        # Process persons
-        for person_resp in response.persons:
-            person = PersonEntity(
-                id=uuid4(),
-                name=person_resp.name,
-                type=person_resp.type,
-                category=person_resp.category,
-                nickname=person_resp.nickname,
-                birth_date=person_resp.birth_date,
-                email=person_resp.email,
-                phone=person_resp.phone,
-                address=person_resp.address,
-                notes=person_resp.notes,
-                created_at=datetime.utcnow(),
-                updated_at=None
-            )
-            entity_map[person.name] = person
-
-        # Process organizations
-        for org_resp in response.organizations:
-            organization = OrganizationEntity(
-                id=uuid4(),
-                name=org_resp.name,
-                type=org_resp.type,
-                industry=org_resp.industry,
-                website=org_resp.website,
-                address=org_resp.address,
-                notes=org_resp.notes,
-                created_at=datetime.utcnow(),
-                updated_at=None
-            )
-            entity_map[organization.name] = organization
-
-        # Process relationships
-        relationships = []
-        for rel_resp in response.relationships:
-            from_entity = entity_map.get(rel_resp.from_entity_name)
-            to_entity = entity_map.get(rel_resp.to_entity_name)
-            if from_entity and to_entity:
-                relationship = Relationship(
-                    id=uuid4(),
-                    from_entity_id=from_entity.id,
-                    to_entity_id=to_entity.id,
-                    type=rel_resp.type,
-                    since=rel_resp.since,
-                    until=rel_resp.until,
-                    notes=rel_resp.notes
-                )
-                relationships.append(relationship)
-            else:
-                self.logger.warning(
-                    f"Entity not found for relationship {rel_resp.type} between {rel_resp.from_entity_name} and {rel_resp.to_entity_name}"
-                )
-
-        # Now, write entities and relationships to Neo4j
+        """Process a batch of messages for entity extraction."""
         try:
+            # Get entity extraction response
+            response = self._extract_entities(messages)
+            if not response:
+                return
+            
+            # Process in a Neo4j transaction
             with driver.session() as session:
-                # Create entities and update entity_map with database IDs
-                for name, entity in entity_map.items():
-                    db_id = session.execute_write(create_entity_node, entity)
-                    entity.db_id = db_id  # Store the database ID
-                    entity_map[name] = entity  # Update the entity_map
-
-                # Build a mapping from IDs to entities
-                id_to_entity_map = {entity.id: entity for entity in entity_map.values()}
-
-                # Update relationships to use database IDs
-                for rel in relationships:
-                    from_entity = id_to_entity_map.get(rel.from_entity_id)
-                    to_entity = id_to_entity_map.get(rel.to_entity_id)
-                    if from_entity and to_entity:
-                        # Assign the database IDs to the relationship
-                        rel.from_entity_db_id = from_entity.db_id
-                        rel.to_entity_db_id = to_entity.db_id
-
-                        # Debug logging
-                        self.logger.debug(
-                            f"Creating relationship {rel.type} between DB IDs {rel.from_entity_db_id} and {rel.to_entity_db_id}"
+                def process_entities(tx):
+                    entity_map = {}
+                    
+                    # Process persons using centralized function
+                    for person_resp in response.persons:
+                        person_details = {
+                            'name': person_resp.name,
+                            'type': person_resp.type,
+                            'category': person_resp.category,
+                            'nickname': person_resp.nickname,
+                            'birth_date': person_resp.birth_date,
+                            'email': person_resp.email,
+                            'phone': person_resp.phone,
+                            'address': person_resp.address,
+                            'notes': person_resp.notes
+                        }
+                        person = get_or_create_person_entity(tx, person_details)
+                        entity_map[person.name] = person
+                    
+                    # Process organizations
+                    for org_resp in response.organizations:
+                        organization = OrganizationEntity(
+                            id=uuid4(),
+                            name=org_resp.name,
+                            type=org_resp.type,
+                            industry=org_resp.industry,
+                            website=org_resp.website,
+                            address=org_resp.address,
+                            notes=org_resp.notes,
+                            created_at=datetime.utcnow(),
+                            updated_at=None
                         )
-
-                        session.execute_write(create_entity_relationship, rel)
-                    else:
-                        self.logger.warning(
-                            f"Entity not found for relationship {rel.type} between IDs {rel.from_entity_id} and {rel.to_entity_id}"
-                        )
-
+                        create_entity_node(tx, organization)
+                        entity_map[organization.name] = organization
+                    
+                    # Process relationships
+                    for rel in response.relationships:
+                        from_entity = entity_map.get(rel.from_entity_name)
+                        to_entity = entity_map.get(rel.to_entity_name)
+                        
+                        if from_entity and to_entity:
+                            relationship = Relationship(
+                                from_entity_id=from_entity.id,
+                                to_entity_id=to_entity.id,
+                                from_entity_db_id=from_entity.db_id,  # Set the db_id from the entity
+                                to_entity_db_id=to_entity.db_id,  # Set the db_id from the entity
+                                type=rel.type,
+                                since=rel.since,
+                                until=rel.until,
+                                notes=rel.notes
+                            )
+                            create_entity_relationship(tx, relationship)
+                
+                # Execute transaction
+                session.execute_write(process_entities)
+                
         except Exception as e:
-            self.logger.error(f"An error occurred while writing to Neo4j: {e}")
+            self.logger.error(f"Error processing entity extraction batch: {str(e)}")
             raise
-
-        return response
 
     def execute_graph(self, state: AgentState, config: dict):
         """Execute the memory graph with async support."""
@@ -807,6 +785,28 @@ class SmileMemory:
         """
         
         tx.run(query, type=memory_type, content=content)
+
+    def _create_relationship(self, tx: ManagedTransaction, relationship: Relationship) -> None:
+        """
+        Create a relationship between two entities in Neo4j.
+
+        Args:
+            tx (ManagedTransaction): The Neo4j transaction
+            relationship (Relationship): The relationship object to be created
+
+        Raises:
+            Exception: If there is an error creating the relationship
+
+        Logs:
+            DEBUG: Relationship creation details
+            ERROR: Any errors during creation
+        """
+        try:
+            self.logger.debug(f"Creating relationship of type {relationship.type} between entities {relationship.from_entity_id} and {relationship.to_entity_id}")
+            create_entity_relationship(tx, relationship)
+        except Exception as e:
+            self.logger.error(f"Error creating relationship: {str(e)}")
+            raise
 
 if __name__ == "__main__":
     

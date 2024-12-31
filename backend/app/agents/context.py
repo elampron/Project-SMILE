@@ -13,7 +13,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from uuid import UUID
 from neo4j import GraphDatabase, Session
-from app.services.neo4j import get_similar_memories, driver
+from app.services.neo4j import driver
+from app.services.neo4j.vectors import similarity_search
 from app.services.embeddings import EmbeddingsService
 
 from app.models.memory import (
@@ -22,8 +23,7 @@ from app.models.memory import (
 )
 from app.configs.settings import settings
 
-# Initialize logger
-logger = logging.getLogger(__name__)
+from app.utils.logger import logger
 
 class ContextManager:
     """
@@ -46,7 +46,7 @@ class ContextManager:
             driver: Neo4j driver instance for database operations
         """
         self.driver = driver
-        self.embeddings_service = EmbeddingsService(driver)
+        self.embeddings_service = EmbeddingsService()
         
     def get_formatted_context(self, user_input: str) -> str:
         """
@@ -72,14 +72,14 @@ class ContextManager:
             relevant_summaries = self._get_relevant_summaries(user_input)
             relevant_memories = self._get_relevant_memories(user_input)
             recent_summaries = self._get_recent_summaries()
-            relevant_documents = self._get_relevant_documents(user_input)
+            # relevant_documents = self._get_relevant_documents(user_input)
             
             # Format the context
             context_parts = []
             
-            if relevant_documents:
-                context_parts.append("RELEVANT DOCUMENTS:")
-                context_parts.extend(self._format_documents(relevant_documents))
+            # if relevant_documents:
+            #     context_parts.append("RELEVANT DOCUMENTS:")
+            #     context_parts.extend(self._format_documents(relevant_documents))
             
             if important_preferences:
                 context_parts.append("\nIMPORTANT PREFERENCES:")
@@ -157,21 +157,22 @@ class ContextManager:
             # Generate embedding for user input
             query_embedding = self.embeddings_service.generate_embedding(user_input)
             
-            # Use similarity search from embeddings service
-            results = self.embeddings_service.similarity_search(
-                query_embedding=query_embedding,
-                node_label="Preference",
-                limit=5,
-                min_score=0.7
-            )
+            # Use similarity search from Neo4j service
+            with self.driver.session() as session:
+                results = session.execute_read(
+                    lambda tx: similarity_search(
+                        tx=tx,
+                        query_embedding=query_embedding,
+                        node_label="Preference",
+                        limit=5,
+                        min_score=0.7,
+                        additional_filters="AND NOT n.id IN $exclude_ids AND n.importance < 5",
+                        exclude_ids=list(important_preferences)
+                    )
+                )
             
-            # Filter out important preferences and convert to Preference objects
-            return [
-                self._neo4j_to_preference(result) 
-                for result in results 
-                if str(result.get('id')) not in important_preferences 
-                and result.get('importance', 0) < 4
-            ]
+            # Convert to Preference objects
+            return [self._neo4j_to_preference(result) for result in results]
                 
         except Exception as e:
             logger.error(f"Error getting relevant preferences: {str(e)}")
@@ -217,21 +218,34 @@ class ContextManager:
             List[CognitiveMemory]: List of relevant cognitive memories
         """
         try:
+            # Generate embedding for user input
+            query_embedding = self.embeddings_service.generate_embedding(user_input)
+            
+            # Use similarity search from Neo4j service
             with self.driver.session() as session:
-                # Use execute_read for read-only operations
-                return session.execute_read(
-                    lambda tx: get_similar_memories(tx, text=user_input)
+                results = session.execute_read(
+                    lambda tx: similarity_search(
+                        tx=tx,
+                        query_embedding=query_embedding,
+                        node_label="CognitiveMemory",
+                        limit=5,
+                        min_score=0.7
+                    )
                 )
+            
+            # Convert to CognitiveMemory objects
+            return [self._neo4j_to_cognitive_memory(result) for result in results]
+                
         except Exception as e:
             logger.error(f"Error getting relevant memories: {str(e)}")
             # Fallback to getting recent important memories if semantic search fails
             query = """
             MATCH (m:CognitiveMemory)
             WHERE m.importance >= 3
-                RETURN m {
-                    .*, 
-                    embedding: null
-                } as m
+            RETURN m {
+                .*, 
+                embedding: null
+            } as m
             ORDER BY m.created_at DESC
             LIMIT 5
             """
@@ -270,19 +284,40 @@ class ContextManager:
         Returns:
             List[ConversationSummary]: List of relevant conversation summaries
         """
-        # TODO: Implement semantic search for summaries
-        query = """
-        MATCH (s:Summary)
-        RETURN s {
-        .*, 
-            embedding: null
-        } as s
-        ORDER BY s.created_at DESC
-        LIMIT 5
-        """
-        with self.driver.session() as session:
-            result = session.run(query)
-            return [self._neo4j_to_conversation_summary(record["s"]) for record in result]
+        try:
+            # Generate embedding for user input
+            query_embedding = self.embeddings_service.generate_embedding(user_input)
+            
+            # Use similarity search from Neo4j service
+            with self.driver.session() as session:
+                results = session.execute_read(
+                    lambda tx: similarity_search(
+                        tx=tx,
+                        query_embedding=query_embedding,
+                        node_label="Summary",
+                        limit=5,
+                        min_score=0.7
+                    )
+                )
+            
+            # Convert to ConversationSummary objects
+            return [self._neo4j_to_conversation_summary(result) for result in results]
+                
+        except Exception as e:
+            logger.error(f"Error getting relevant summaries: {str(e)}")
+            # Fallback to getting recent summaries if semantic search fails
+            query = """
+            MATCH (s:Summary)
+            RETURN s {
+                .*, 
+                embedding: null
+            } as s
+            ORDER BY s.created_at DESC
+            LIMIT 5
+            """
+            with self.driver.session() as session:
+                result = session.run(query)
+                return [self._neo4j_to_conversation_summary(record["s"]) for record in result]
     
     def _format_preferences(self, preferences: List[Preference]) -> List[str]:
         """Format preferences into human-readable strings."""

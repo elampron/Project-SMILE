@@ -14,7 +14,7 @@ main_user:
   created_at: '2024-01-24T00:00:00Z'
   id: 550e8400-e29b-41d4-a716-446655440000
   main_email: elampron@gmail.com
-  name: Eric
+  name: Eric Lampron
   person_details:
     address: 123 Main St, Anytown, USA
     birth_date: null

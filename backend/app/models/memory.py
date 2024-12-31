@@ -421,44 +421,119 @@ class Preference(BaseModel):
 
 class PreferenceResponse(BaseModel):
     """
-    Model for preference response data.
+    Model for preference response data. This model captures individual preferences expressed in conversations,
+    including who the preference belongs to, what type of preference it is, and detailed information about the preference.
     
     Attributes:
-        person_name (str): Name of the person
-        preference_type (str): Type of preference
-        importance (int): Importance level (1-5)
-        details (Dict[str, str]): Flexible dictionary for preference details
+        person_name (str): The full name of the person the preference belongs to. Use 'Eric Lampron' for the user,
+            'Smiles' for the AI assistant, or the actual name for other people mentioned.
+        preference_type (str): Category or domain of the preference (e.g., 'communication', 'system', 'food', 'travel', 'location').
+            Can be either an existing type or a new meaningful category.
+        importance (int): Priority level from 1 to 5, where:
+            1 = Nice to have
+            2 = Somewhat important
+            3 = Important
+            4 = Very important
+            5 = Critical (ONLY use when explicitly stated as critical/essential)
+        details (Dict[str, str]): Structured information about the preference, including:
+            - Specific values or choices (e.g., {"theme": "dark"})
+            - Reasons or context (e.g., {"reason": "easier on eyes"})
+            - Related attributes (e.g., {"frequency": "daily", "time": "morning"})
     """
     model_config = {
         "arbitrary_types_allowed": True,
         "json_schema_extra": {
             "examples": [
                 {
+                    "person_name": "Eric Lampron",
+                    "preference_type": "location",
+                    "importance": 4,
                     "details": {
-                        "folder_name": "smiles_chest",
-                        "reason": "needs good structure due to severe A.D.D."
+                        "city": "Montreal",
+                        "country": "Canada",
+                        "reason": "current residence",
+                        "context": "used for weather and local services"
+                    }
+                },
+                {
+                    "person_name": "Eric Lampron",
+                    "preference_type": "family",
+                    "importance": 4,
+                    "details": {
+                        "family_members": "son Arthur (3yo), nephew Ezequiel (2yo)",
+                        "birthdays": "Arthur: December 17, Ezequiel: December 31",
+                        "context": "celebrating family birthdays together"
                     }
                 }
             ]
         }
     }
     
-    person_name: str
-    preference_type: str
-    importance: int = Field(ge=1, le=5)
-    details: Dict[str, str] = Field(default_factory=dict)
+    person_name: str = Field(
+        ...,
+        description="Full name of the person. Use 'Eric Lampron' for user, 'Smiles' for AI, or actual name for others"
+    )
+    preference_type: str = Field(
+        ...,
+        description="Category of the preference (e.g., 'communication', 'system', 'food', 'travel', 'location')"
+    )
+    importance: int = Field(
+        ge=1,
+        le=5,
+        description="Importance level (1-5). Use 5 ONLY when explicitly stated as critical"
+    )
+    details: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Structured details about the preference including values, reasons, and context"
+    )
 
 class PreferenceExtractorResponse(BaseModel):
     """
-    Model for the complete preference extraction response.
+    Model for the complete preference extraction response. This model aggregates all preferences
+    extracted from a conversation, ensuring they are properly structured and validated.
     
     Attributes:
-        preferences (List[PreferenceResponse]): List of extracted preferences
+        preferences (List[PreferenceResponse]): List of all extracted preferences from the conversation.
+            Each preference should be atomic (one clear preference per entry) and include all necessary
+            context for future reference.
     """
     model_config = {
-        "arbitrary_types_allowed": True
+        "arbitrary_types_allowed": True,
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "preferences": [
+                        {
+                            "person_name": "Eric Lampron",
+                            "preference_type": "location",
+                            "importance": 4,
+                            "details": {
+                                "city": "Montreal",
+                                "country": "Canada",
+                                "reason": "current residence",
+                                "context": "used for weather and local services"
+                            }
+                        },
+                        {
+                            "person_name": "Smiles",
+                            "preference_type": "communication",
+                            "importance": 3,
+                            "details": {
+                                "style": "casual",
+                                "tone": "friendly",
+                                "emoji_usage": "moderate",
+                                "reason": "preferred interaction style"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
     }
-    preferences: List[PreferenceResponse]
+    preferences: List[PreferenceResponse] = Field(
+        ...,
+        description="List of extracted preferences, each representing a single, well-defined preference with full context"
+    )
 
 class DocumentType(str, Enum):
     """Core document types for SMILE system.
@@ -666,38 +741,42 @@ class CognitiveMemory(BaseModel):
     """
     # Core Identity
     id: UUID = Field(default_factory=uuid4)
-    type: str  # Flexible type system
-    sub_type: Optional[str] = None  # Optional refinement of type
+    type: str = Field(default="general", description="Type of memory (e.g., 'fact', 'preference', 'event')")
+    sub_type: Optional[str] = Field(default=None, description="Optional refinement of type")
     
     # Content
-    content: str  # Primary textual content
-    structured_data: Optional[Dict[str, Any]] = None  # Structured representation
+    content: str = Field(..., description="Primary textual content of the memory")
+    structured_data: Optional[Dict[str, Any]] = Field(default=None, description="Structured representation of the memory content")
     
     # Semantic and Cognitive Information
-    semantic: SemanticAttributes = Field(default_factory=SemanticAttributes)
-    embedding: Optional[List[float]] = None
+    semantic: SemanticAttributes = Field(default_factory=SemanticAttributes, description="Semantic attributes of the memory")
+    embedding: Optional[List[float]] = Field(default=None, description="Vector embedding for similarity search")
     
     # Temporal and Source Information
-    temporal: TemporalContext = Field(default_factory=TemporalContext)
-    source: MemorySource = Field(default=MemorySource.DIRECT_OBSERVATION)
-    source_messages: List[str] = Field(default_factory=list)
+    temporal: TemporalContext = Field(default_factory=TemporalContext, description="Temporal context of the memory")
+    source: MemorySource = Field(default=MemorySource.DIRECT_OBSERVATION, description="Source of the memory")
+    source_messages: List[str] = Field(default_factory=list, description="Original messages that led to this memory")
+    source_id: Optional[str] = Field(default=None, description="ID of the source entity/message")
     
     # Confidence and Validation
-    confidence: float = Field(default=1.0)
-    validation: ValidationStatus = Field(default_factory=ValidationStatus)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence score for the memory")
+    validation: ValidationStatus = Field(default_factory=ValidationStatus, description="Validation status of the memory")
     
     # Relations and Associations
-    relations: MemoryRelations = Field(default_factory=MemoryRelations)
+    relations: MemoryRelations = Field(default_factory=MemoryRelations, description="Relationships with other system components")
+    
+    # Context
+    context: str = Field(default="general", description="Context in which the memory was formed")
     
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: Optional[datetime] = None
-    access_count: int = 0
-    last_accessed: Optional[datetime] = None
+    updated_at: Optional[datetime] = Field(default=None)
+    access_count: int = Field(default=0)
+    last_accessed: Optional[datetime] = Field(default=None)
     
     # System Fields
-    version: int = 1
-    is_archived: bool = False
+    version: int = Field(default=1)
+    is_archived: bool = Field(default=False)
     
     class Config:
         json_encoders = {
@@ -739,6 +818,7 @@ class CognitiveMemory(BaseModel):
         components = [
             self.content,
             f"Type: {self.type}",
+            f"Context: {self.context}",
             f"Categories: {' '.join(self.semantic.categories)}",
             f"Keywords: {' '.join(self.semantic.keywords)}",
             json.dumps(self.structured_data) if self.structured_data else ""

@@ -43,7 +43,7 @@ class SearchEntitiesTool(BaseTool):
     args_schema: ClassVar[type[BaseModel]] = SearchEntitiesInput
     
     # Add model field for service
-    embeddings_service: EmbeddingsService = Field(default_factory=lambda: EmbeddingsService(driver))
+    embeddings_service: EmbeddingsService = Field(default_factory=lambda: EmbeddingsService())
     
     def __init__(self, **data):
         """Initialize the tool with necessary services."""

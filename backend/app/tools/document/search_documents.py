@@ -44,7 +44,7 @@ class SearchDocumentsTool(BaseTool):
     args_schema: ClassVar[type[BaseModel]] = SearchDocumentsInput
     
     # Add model fields for services
-    embeddings_service: EmbeddingsService = Field(default_factory=lambda: EmbeddingsService(driver))
+    embeddings_service: EmbeddingsService = Field(default_factory=lambda: EmbeddingsService())
     context_manager: ContextManager = Field(default_factory=lambda: ContextManager(driver))
     
     def __init__(self, **data):

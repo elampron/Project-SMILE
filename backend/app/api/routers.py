@@ -5,14 +5,14 @@ import logging
 from app.agents.smile import Smile
 from pydantic import BaseModel
 from app.configs.settings import settings
+from app.services.embeddings import EmbeddingsService
 import yaml
 import os
 import json
 from fastapi.encoders import jsonable_encoder
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from app.utils.logger import logger
+
 
 # Create router instance
 router = APIRouter()
@@ -307,24 +307,15 @@ async def get_all_settings():
 
 @router.on_event("startup")
 async def startup_event():
-    """Initialize Smile agent and create vector indexes on startup"""
+    """Initialize Smile agent on startup"""
     global smile
     try:
-        # Create vector indexes first
-        from app.services.embeddings import EmbeddingsService
-        from app.services.neo4j import driver
-        
-        logger.info("Creating vector indexes...")
-        embeddings_service = EmbeddingsService(driver)
-        embeddings_service.create_vector_indexes()
-        logger.info("Vector indexes created successfully")
-        
-        # Then initialize Smile agent
+        # Initialize Smile agent
         smile = Smile()
         smile.initialize()
         logger.info("Smile agent initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize backend: {str(e)}", exc_info=True)
+        logger.error(f"Failed to initialize Smile agent: {str(e)}", exc_info=True)
         raise
 
 @router.on_event("shutdown")

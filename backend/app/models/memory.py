@@ -1,5 +1,6 @@
 import json
 import uuid
+from app.services.neo4j.utils import Neo4jEncoder
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional, Literal,Dict, Any, Union
 from datetime import datetime

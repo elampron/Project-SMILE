@@ -47,6 +47,7 @@ google-genai = "^0.2.1"
 langchain-google-genai = "^2.0.7"
 langchain-groq = "^0.2.2"
 langchain-ollama = "^0.2.2"
+livekit-agents = "^0.12.6"
 
 
 [build-system]

@@ -1,5 +1,5 @@
 import logging
-from typing import Annotated, Sequence, TypedDict, Dict, List
+from typing import Annotated, Sequence, TypedDict, Dict, List, Generator
 from typing_extensions import Literal
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -374,7 +374,7 @@ class Smile:
             self.logger.error(f"Error retrieving conversation history: {str(e)}", exc_info=True)
             raise
 
-    def stream(self, message: str, config: Dict, attachments: List[Attachment] = None) -> str:
+    def stream(self, message: str, config: Dict, attachments: List[Attachment] = None) -> Generator[str, None, None]:
         """
         Stream method that handles both message and attachments.
         

@@ -30,6 +30,20 @@ services:
     networks:
       - smile-network
 
+  livekit-smiles-agent:
+    build:
+      context: ./backend/livekit-plugin-smiles
+      dockerfile: Dockerfile
+    container_name: livekit-smiles-agent
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - smile-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+
   backend:
     build: 
       context: ./backend

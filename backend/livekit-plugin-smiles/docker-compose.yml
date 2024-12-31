@@ -1,7 +1,7 @@
 services:
   livekit-smiles-agent:
     build:
-      context: .
+      context: ./backend/livekit-plugin-smiles
       dockerfile: Dockerfile
     container_name: livekit-smiles-agent
     env_file:

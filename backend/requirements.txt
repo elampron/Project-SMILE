@@ -112,3 +112,9 @@ langchain_xai
 langchain_google_genai
 langchain_groq
 langchain_ollama
+livekit-agents
+livekit-plugins-openai
+livekit-plugins-deepgram
+livekit-plugins-turn-detector
+
+

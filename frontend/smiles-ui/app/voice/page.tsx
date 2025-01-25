@@ -77,15 +77,10 @@ function SimpleVoiceAssistant(props: {
             state={state}
             barCount={5}
             trackRef={audioTrack}
-            className="w-full h-full"
+            className="agent-visualizer"
             options={{ 
               minHeight: 40,
               maxHeight: 80,
-              color: '#22c55e',
-              backgroundColor: '#1a1a1a',
-              gap: 20,
-              radius: 40,
-              barWidth: 60,
             }}
           />
         </div>

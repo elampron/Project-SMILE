@@ -1,0 +1,37 @@
+# Dependencies
+smiles-ui/node_modules
+smiles-ui/.pnp
+smiles-ui/.pnp.js
+
+# Next.js build output
+smiles-ui/.next
+smiles-ui/out
+
+# Testing
+smiles-ui/coverage
+
+# Debug & Logs
+smiles-ui/npm-debug.log*
+smiles-ui/yarn-debug.log*
+smiles-ui/yarn-error.log*
+
+# Environment files
+smiles-ui/.env*
+smiles-ui/.env.local
+smiles-ui/.env.development.local
+smiles-ui/.env.test.local
+smiles-ui/.env.production.local
+
+# System Files
+.DS_Store
+*.pem
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Git
+.git
+.gitignore 

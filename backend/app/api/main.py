@@ -70,7 +70,7 @@ async def startup_event():
     try:
         global smile
         smile = Smile()
-        smile.initialize()
+        await smile.initialize()
         logger.info("Smile instance initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize Smile instance: {str(e)}")

@@ -9,7 +9,6 @@ import logging
 from typing import Optional, Dict, Any
 from uuid import UUID
 from neo4j import ManagedTransaction
-from app.models.memory import BaseEntity, PersonEntity, OrganizationEntity, SmileDocument
 from app.services.embeddings import EmbeddingsService
 from .utils import convert_properties_for_neo4j
 
@@ -19,29 +18,51 @@ logger = logging.getLogger(__name__)
 # Initialize embeddings service
 embeddings_service = EmbeddingsService()
 
-def create_entity_node(tx: ManagedTransaction, entity: BaseEntity) -> str:
+def create_entity_node(tx: ManagedTransaction, entity: Any) -> str:
     """
     Create or update an entity node in Neo4j with embedding.
     Uses MERGE to avoid duplicates, matching on name and type.
     
     Args:
         tx (ManagedTransaction): Neo4j transaction object
-        entity (BaseEntity): Entity object to store (PersonEntity, OrganizationEntity, or SmileDocument)
+        entity: Entity object or dictionary to store
         
     Returns:
         str: The ID of the created/updated node
     """
-    # Generate embedding if not provided
-    if entity.embedding is None:
-        # Create text representation for embedding
-        if isinstance(entity, SmileDocument):
-            text_for_embedding = entity.to_embedding_text()
-        else:
-            text_for_embedding = f"{entity.name} {entity.type} {entity.notes if hasattr(entity, 'notes') else ''}"
-        entity.embedding = embeddings_service.generate_embedding(text_for_embedding)
+    # Import here to avoid circular dependency
+    from app.models.memory import PersonEntity
     
-    # Convert entity to dictionary and prepare properties
-    properties = entity.model_dump()
+    # Handle dictionary input
+    if isinstance(entity, dict):
+        properties = entity.copy()
+        entity_type = properties.get('type', 'Document')
+        
+        # Generate embedding if not provided
+        if 'embedding' not in properties or properties['embedding'] is None:
+            # Create text representation for embedding
+            if entity_type == 'Document':
+                text_for_embedding = f"{properties.get('name', '')} {properties.get('content', '')} {properties.get('summary', '')}"
+                if properties.get('topics'):
+                    text_for_embedding += f"\nTopics: {', '.join(properties['topics'])}"
+                if properties.get('entities'):
+                    text_for_embedding += f"\nEntities: {', '.join(properties['entities'])}"
+                if properties.get('tags'):
+                    text_for_embedding += f"\nTags: {', '.join(properties['tags'])}"
+            else:
+                text_for_embedding = f"{properties.get('name', '')} {entity_type} {properties.get('notes', '')}"
+            properties['embedding'] = embeddings_service.generate_embedding(text_for_embedding)
+    else:
+        # Generate embedding if not provided
+        if entity.embedding is None:
+            text_for_embedding = f"{entity.name} {entity.type} {entity.notes if hasattr(entity, 'notes') else ''}"
+            entity.embedding = embeddings_service.generate_embedding(text_for_embedding)
+        
+        # Convert entity to dictionary and prepare properties
+        properties = entity.model_dump()
+        entity_type = entity.type
+    
+    # Ensure ID is string
     properties['id'] = str(properties['id'])
     properties = convert_properties_for_neo4j(properties)
     
@@ -53,10 +74,10 @@ def create_entity_node(tx: ManagedTransaction, entity: BaseEntity) -> str:
         e.id = $id,
         e.created_at = datetime($created_at),
         e.embedding = $embedding
-    """ % entity.type
+    """ % entity_type
     
     # Add category for Person entities
-    if isinstance(entity, PersonEntity):
+    if isinstance(entity, PersonEntity) or (isinstance(entity, dict) and entity_type == 'Person'):
         query += ", e.category = $category"
     
     # Add additional fields that should be updated on match
@@ -68,7 +89,8 @@ def create_entity_node(tx: ManagedTransaction, entity: BaseEntity) -> str:
     
     # Add optional fields if they exist and are not null
     optional_fields = ['notes', 'nickname', 'birth_date', 'email', 'phone', 'address', 
-                      'industry', 'website', 'metadata']
+                      'industry', 'website', 'metadata', 'content', 'summary', 'topics',
+                      'entities', 'tags', 'file_path', 'file_url', 'file_type', 'doc_type']
     for field in optional_fields:
         if field in properties and properties[field]:
             query += f", e.{field} = ${field}"
@@ -80,7 +102,8 @@ def create_entity_node(tx: ManagedTransaction, entity: BaseEntity) -> str:
         result = tx.run(query, **properties)
         record = result.single()
         if record:
-            entity.db_id = record["e"]["id"]  # Set the db_id on the entity
+            if not isinstance(entity, dict):
+                entity.db_id = record["e"]["id"]  # Set the db_id on the entity
             logger.info(f"Successfully created/updated entity node with name: {properties['name']}")
             return record["e"]["id"]
         else:
@@ -89,7 +112,7 @@ def create_entity_node(tx: ManagedTransaction, entity: BaseEntity) -> str:
         logger.error(f"Error creating/updating entity node: {str(e)}")
         raise
 
-def get_or_create_person_entity(tx: ManagedTransaction, person_details: Dict[str, Any]) -> PersonEntity:
+def get_or_create_person_entity(tx: ManagedTransaction, person_details: Dict[str, Any]) -> Any:
     """
     Get or create a person entity in Neo4j.
     
@@ -100,6 +123,9 @@ def get_or_create_person_entity(tx: ManagedTransaction, person_details: Dict[str
     Returns:
         PersonEntity: The created or retrieved person entity
     """
+    # Import here to avoid circular dependency
+    from app.models.memory import PersonEntity
+    
     # Ensure required fields are present
     required_fields = ['name', 'category']
     for field in required_fields:

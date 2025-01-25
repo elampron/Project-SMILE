@@ -1,11 +1,13 @@
 from fastapi import APIRouter, HTTPException, Body, WebSocket, Depends, UploadFile, File, Form, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from typing import Optional, Dict, Any, List
 import logging
 from app.agents.smile import Smile
 from pydantic import BaseModel
 from app.configs.settings import settings
 from app.services.embeddings import EmbeddingsService
+from app.agents.context import ContextManager
+from app.services.neo4j import driver
 import yaml
 import os
 import json
@@ -13,6 +15,8 @@ from fastapi.encoders import jsonable_encoder
 
 from app.utils.logger import logger
 
+# Initialize ContextManager
+context_manager = ContextManager(driver)
 
 # Create router instance
 router = APIRouter()
@@ -20,12 +24,44 @@ router = APIRouter()
 # Initialize Smile as None - will be set during startup
 smile = None
 
+@router.get("/context")
+async def get_context(user_input: str):
+    """
+    Get formatted context based on user input.
+    
+    Args:
+        user_input (str): The user's current question or comment
+        
+    Returns:
+        dict: A dictionary containing the formatted context and status
+        
+    Raises:
+        HTTPException: If there's an error getting the context
+    """
+    try:
+        logger.info(f"Getting formatted context for input: {user_input}")
+        formatted_context = context_manager.get_formatted_context(user_input)
+        return {
+            "status": "success",
+            "data": formatted_context
+        }
+    except Exception as e:
+        logger.error(f"Error getting formatted context: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting formatted context: {str(e)}"
+        )
+
 async def get_smile():
     """
     Dependency to get initialized Smile instance.
     """
+    global smile
     if not smile:
         raise HTTPException(status_code=503, detail="Service not initialized")
+    if hasattr(smile, '__aiter__'):
+        async for instance in smile:
+            return instance
     return smile
 
 # Add these classes for request validation
@@ -33,30 +69,29 @@ class UpdateSettingsRequest(BaseModel):
     config_type: str  # Either "app_config" or "llm_config"
     settings_data: Dict[str, Any]
 
+class ChatRequest(BaseModel):
+    message: str
+    thread_id: Optional[str] = None
+    attachments: Optional[List[Dict[str, str]]] = []
+
 # Original chat endpoint for JSON requests
 @router.post("/chat/json")
 async def chat_json_endpoint(
-    chat_request: dict = Body(...),
-    smile_agent: Smile = Depends(get_smile)
-):
-    """JSON-based chat endpoint for backward compatibility"""
+    request: ChatRequest,
+    smile_agent: Any = Depends(get_smile)
+) -> Dict[str, Any]:
+    """Chat endpoint that accepts JSON input."""
     try:
-        message = chat_request.get("message", "").strip()
-        thread_id = chat_request.get("thread_id") or settings.app_config["langchain_config"]["thread_id"]
-        
+        message = request.message.strip()
+        thread_id = request.thread_id or settings.app_config["langchain_config"]["thread_id"]
+        print(f"Thread ID from request: {thread_id}")
         if not message:
             raise HTTPException(status_code=422, detail="Message must be a non-empty string")
 
-        def response_generator():
+        async def response_generator():
             try:
-                for chunk in smile_agent.stream(
-                    message,
-                    config={
-                        "configurable": {
-                            "thread_id": thread_id
-                        }
-                    }
-                ):
+                config = {"thread_id": thread_id}
+                async for chunk in smile_agent.stream(message, config=config, attachments=request.attachments):
                     yield chunk
             except Exception as e:
                 logger.error(f"Error generating response: {str(e)}", exc_info=True)
@@ -73,84 +108,61 @@ async def chat_json_endpoint(
             }
         )
     except Exception as e:
-        logger.error(f"Error in chat endpoint: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error in chat endpoint: {str(e)}")
+        logger.error(f"Error in chat_json_endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing chat request: {str(e)}"
+        )
 
-# New form-data chat endpoint
-@router.post("/chat")
+# Form-based chat endpoint for file uploads
+@router.post("/chat/form")
 async def chat_form_endpoint(
     message: str = Form(...),
-    thread_id: str = Form(None),
-    files: List[UploadFile] = File([]),
-    smile_agent: Smile = Depends(get_smile)
-):
-    """
-    Form-data chat endpoint that supports file uploads.
-    Files are processed and saved, then passed to the agent for this run only.
-    """
+    attachments: Optional[List[UploadFile]] = None,
+    smile_agent: Any = Depends(get_smile)
+) -> Dict[str, Any]:
+    """Chat endpoint that accepts form data."""
     try:
-        logger.info(f"Received form request - Message: {message}, Thread ID: {thread_id}, Files: {[f.filename for f in files]}")
+        logger.info(f"Received form request - Message: {message}, Files: {[f.filename for f in (attachments or [])]}")
         
         if not message.strip():
             raise HTTPException(status_code=422, detail="Message must be a non-empty string")
-
-        # Use thread_id from settings if not provided
-        effective_thread_id = thread_id or settings.app_config["langchain_config"]["thread_id"]
-        logger.info(f"Using thread_id: {effective_thread_id}")
-
-        # Process uploaded files for this run
-        current_attachments = []
-        if files:
-            logger.info(f"Processing {len(files)} files")
-            for file in files:
+            
+        # Use default thread_id if none provided
+        thread_id = settings.app_config["langchain_config"]["thread_id"]
+        logger.info(f"Using thread_id: {thread_id}")
+        
+        # Process any uploaded files
+        processed_attachments = []
+        if attachments:
+            logger.info(f"Processing {len(attachments)} files")
+            for file in attachments:
                 try:
-                    if not file.filename:
-                        logger.warning("Skipping file with no filename")
-                        continue
-                        
+                    # Read file content
                     content = await file.read()
+                    
+                    # Try to decode as UTF-8 text
                     try:
-                        decoded_content = content.decode('utf-8')
+                        text_content = content.decode('utf-8')
                         logger.info(f"Successfully decoded file {file.filename} as UTF-8")
                     except UnicodeDecodeError:
-                        logger.warning(f"File {file.filename} contains binary content")
-                        decoded_content = str(content)
+                        # If not text, store as binary
+                        text_content = f"[Binary file: {file.filename}]"
+                        logger.info(f"File {file.filename} appears to be binary")
                     
-                    # Save document and get attachment object for this run
-                    try:
-                        attachment = smile_agent.save_document(decoded_content, file.filename)
-                        if attachment:
-                            current_attachments.append(attachment)
-                            logger.info(f"Successfully processed file: {file.filename}")
-                        else:
-                            logger.warning(f"Failed to create attachment for {file.filename}")
-                    except Exception as e:
-                        logger.error(f"Error saving document {file.filename}: {str(e)}")
-                        continue
-                    
-                    # Reset file seek position
-                    await file.seek(0)
-                    
+                    processed_attachments.append({
+                        'filename': file.filename,
+                        'content': text_content
+                    })
                 except Exception as e:
-                    logger.error(f"Error processing file {file.filename}: {str(e)}")
-                    # Continue processing other files instead of failing completely
+                    logger.error(f"Error processing file {file.filename}: {str(e)}", exc_info=True)
+                    # Continue with other files if one fails
                     continue
-
-        if not current_attachments and files:
-            logger.warning("No valid attachments were created from uploaded files")
 
         async def response_generator():
             try:
-                # Pass current attachments to the stream method
-                for chunk in smile_agent.stream(
-                    message,
-                    config={
-                        "configurable": {
-                            "thread_id": effective_thread_id
-                        }
-                    },
-                    attachments=current_attachments  # Pass attachments for this run
-                ):
+                config = {"thread_id": thread_id}
+                async for chunk in smile_agent.stream(message, config=config, attachments=processed_attachments):
                     yield chunk
             except Exception as e:
                 logger.error(f"Error generating response: {str(e)}", exc_info=True)
@@ -167,25 +179,34 @@ async def chat_form_endpoint(
             }
         )
     except Exception as e:
-        logger.error(f"Error in chat endpoint: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error in chat endpoint: {str(e)}")
+        logger.error(f"Error in chat_form_endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing chat request: {str(e)}"
+        )
 
 @router.get("/history")
-def get_history_endpoint(
+async def get_history_endpoint(
     thread_id: Optional[str] = settings.app_config["langchain_config"]["thread_id"],
     num_messages: Optional[int] = 50,
-    smile_agent: Smile = Depends(get_smile)
+    smile_agent: Any = Depends(get_smile)
 ):
-    """Synchronous history endpoint."""
+    """Get conversation history endpoint."""
     try:
-        history = smile_agent.get_conversation_history(
-            num_messages=num_messages, 
-            thread_id=thread_id
+        history = await smile_agent.get_conversation_history(
+            thread_id=thread_id,
+            num_messages=num_messages
         )
-        return {"status": "success", "data": history}
+        return JSONResponse(
+            status_code=200,
+            content={"status": "success", "data": history}
+        )
     except Exception as e:
         logger.error(f"Error retrieving conversation history: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error retrieving conversation history: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving conversation history: {str(e)}"
+        )
 
 @router.get("/settings/{config_type}")
 async def get_settings(config_type: str):
@@ -312,7 +333,7 @@ async def startup_event():
     try:
         # Initialize Smile agent
         smile = Smile()
-        smile.initialize()
+        await smile.initialize()
         logger.info("Smile agent initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize Smile agent: {str(e)}", exc_info=True)

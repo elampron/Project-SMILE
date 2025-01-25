@@ -1,8 +1,8 @@
 """Memory tools for SMILE."""
 
-from .search_memories import SearchMemoriesTool, SearchMemoriesInput
+from .search_memories import search_memories, SearchMemoriesInput
 
 __all__ = [
-    'SearchMemoriesTool',
+    'search_memories',
     'SearchMemoriesInput'
 ] 

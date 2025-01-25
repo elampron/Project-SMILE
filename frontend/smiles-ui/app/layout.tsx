@@ -36,7 +36,7 @@ export default function RootLayout({
               <h1 className="text-2xl font-bold font-mono">S.M.I.L.E.</h1>
               <div className="flex items-center gap-4">
                 <a 
-                  href="https://github.com/yourusername/Project-SMILE" 
+                  href="https://github.com/elampron/Project-SMILE" 
                   target="_blank"
                   className="hover:text-green-400 transition-colors"
                 >

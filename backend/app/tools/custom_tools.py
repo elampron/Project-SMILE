@@ -4,7 +4,7 @@
 from .document import (
     save_document,
     DocumentSaveSchema,
-    SearchDocumentsTool,
+    search_documents,
     SearchDocumentsInput
 )
 
@@ -18,13 +18,13 @@ from .system import (
 
 # Import entity tools
 from .entity import (
-    SearchEntitiesTool,
+    search_entities,
     SearchEntitiesInput
 )
 
 # Import memory tools
 from .memory import (
-    SearchMemoriesTool,
+    search_memories,
     SearchMemoriesInput
 )
 
@@ -32,7 +32,7 @@ __all__ = [
     # Document tools
     'save_document',
     'DocumentSaveSchema',
-    'SearchDocumentsTool',
+    'search_documents',
     'SearchDocumentsInput',
     
     # System tools
@@ -42,11 +42,11 @@ __all__ = [
     'CommandExecuteSchema',
     
     # Entity tools
-    'SearchEntitiesTool',
+    'search_entities',
     'SearchEntitiesInput',
     
     # Memory tools
-    'SearchMemoriesTool',
+    'search_memories',
     'SearchMemoriesInput'
 ]
 

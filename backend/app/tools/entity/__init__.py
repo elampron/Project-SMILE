@@ -1,8 +1,8 @@
 """Entity tools for SMILE."""
 
-from .search_entities import SearchEntitiesTool, SearchEntitiesInput
+from .search_entities import search_entities, SearchEntitiesInput
 
 __all__ = [
-    'SearchEntitiesTool',
+    'search_entities',
     'SearchEntitiesInput'
 ] 

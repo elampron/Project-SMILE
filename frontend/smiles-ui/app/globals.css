@@ -5,6 +5,8 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --lk-va-bar-width: 72px;
+  --lk-control-bar-height: unset;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -18,4 +20,25 @@ body {
   color: var(--foreground);
   background: var(--background);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.agent-visualizer > .lk-audio-bar {
+  width: 72px;
+}
+
+.lk-agent-control-bar {
+  @apply border-t-0 p-0 h-min mr-4;
+}
+
+.lk-disconnect-button {
+  @apply h-[36px] hover:bg-green-600 hover:text-black bg-green-500/20 border-green-500/20;
+}
+
+/* Audio Visualizer Styles */
+.lk-audio-bar-visualizer {
+  @apply flex items-center justify-center gap-4;
+}
+
+.lk-audio-bar-visualizer > span {
+  @apply bg-green-500 rounded-full w-[72px] transition-all duration-100;
 }

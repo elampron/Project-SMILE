@@ -5,7 +5,7 @@ langchain_config:
   checkpoint_id: null
   endpoint: https://api.smith.langchain.com
   project: project-smile
-  thread_id: Testing-02
+  thread_id: Testing-03
   tracing_v2: 'true'
 log_config:
   log_file: ''
@@ -33,6 +33,7 @@ neo4j_config:
 postgres_config:
   conn: postgresql://postgres:postgres@postgres:5432/smile_checkpoints
 project_info:
-  project_description: "A new and improved Project-SMILES"
+  project_description: A new and improved Project-SMILES
   project_name: Project-SMILE
   project_version: 0.1.0
+test_new_setting: test_value

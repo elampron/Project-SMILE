@@ -11,7 +11,9 @@ from .entities import (
     get_or_create_person_entity,
 )
 from .relationships import (
-    create_entity_relationship,
+    create_relationship,
+    get_relationships,
+    delete_relationship,
 )
 from .summaries import (
     create_summary_node,
@@ -46,7 +48,9 @@ __all__ = [
     'initialize_schema_with_session',
     'create_entity_node',
     'get_or_create_person_entity',
-    'create_entity_relationship',
+    'create_relationship',
+    'get_relationships',
+    'delete_relationship',
     'create_summary_node',
     'create_summary_relationships',
     'create_preference_node',

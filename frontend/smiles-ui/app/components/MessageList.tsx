@@ -1,15 +1,15 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ChatMessage } from './ChatInterface'
+import { Message } from '../types/chat'
 import ReactMarkdown from 'react-markdown'
 
 interface MessageListProps {
-  initialMessages: ChatMessage[]
+  initialMessages: Message[]
 }
 
 export function MessageList({ initialMessages }: MessageListProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
+  const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [isAiResponding, setIsAiResponding] = useState(false)
   const [currentAiMessage, setCurrentAiMessage] = useState<string>('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -28,7 +28,7 @@ export function MessageList({ initialMessages }: MessageListProps) {
 
   // Listen for custom events
   useEffect(() => {
-    const handleNewMessage = (e: CustomEvent<ChatMessage>) => {
+    const handleNewMessage = (e: CustomEvent<Message>) => {
       setMessages(prev => [...prev, e.detail])
     }
 
@@ -85,6 +85,11 @@ export function MessageList({ initialMessages }: MessageListProps) {
             <div className="whitespace-pre-wrap prose prose-invert max-w-none">
               <ReactMarkdown>{message.content}</ReactMarkdown>
             </div>
+            {message.files && message.files.length > 0 && (
+              <div className="mt-2 text-xs text-green-500/70">
+                Attached files: {message.files.join(', ')}
+              </div>
+            )}
           </div>
         ))}
         

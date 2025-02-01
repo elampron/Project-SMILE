@@ -1,7 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
-import { ChatMessage } from '../components/ChatInterface'
+import { Message } from '../types/chat'
 
 // Get API URL from environment variable
 const SMILES_API_URL = process.env.SMILES_API_URL || 'http://backend:8000'
@@ -15,7 +14,7 @@ interface ChatResponse {
 /**
  * Fetches chat messages from the backend
  */
-export async function getMessages(threadId: string, numMessages: number): Promise<ChatMessage[]> {
+export async function getMessages(threadId: string, numMessages: number): Promise<Message[]> {
   try {
     const response = await fetch(
       `${SMILES_API_URL}/history?thread_id=${threadId}&num_messages=${numMessages}`,

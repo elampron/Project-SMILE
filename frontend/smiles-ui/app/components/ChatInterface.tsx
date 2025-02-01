@@ -3,14 +3,6 @@ import ChatInput from './ChatInput'
 import { MessageList } from './MessageList'
 import { getMessages } from '../actions/chat'
 
-// Types
-export interface ChatMessage {
-  content: string
-  role: 'user' | 'assistant'
-  timestamp: Date
-  thread_id?: string
-}
-
 // Server Component
 export default async function ChatInterface() {
   // Fetch initial messages on the server

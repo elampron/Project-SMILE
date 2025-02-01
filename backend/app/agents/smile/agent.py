@@ -27,7 +27,7 @@ from app.tools.custom_tools import (
 )
 from app.tools.public_tools import web_search_tool, file_tools
 from app.tools.system.system_tools import execute_python, execute_cmd
-from app.services.llm import llm_factory
+from app.utils.llm import llm_factory
 from app.services.postgres import PostgresSaver
 from app.services.context import ContextManager
 from app.services.embeddings import EmbeddingsService

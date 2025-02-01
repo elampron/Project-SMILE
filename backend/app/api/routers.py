@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Body, WebSocket, Depends, UploadFile, File, Form, Request
+from fastapi import APIRouter, HTTPException, Body, WebSocket, Depends, UploadFile, File, Form, Request, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from typing import Optional, Dict, Any, List
 import logging
@@ -8,6 +8,16 @@ from app.configs.settings import settings
 from app.services.embeddings import EmbeddingsService
 from app.agents.context import ContextManager
 from app.services.neo4j import driver
+from app.services.neo4j.entities import create_entity_node
+from app.services.neo4j.relationships import get_relationships
+from app.services.neo4j.vectors import similarity_search
+from app.services.neo4j.driver import driver
+from app.services.neo4j.graph import (
+    get_nodes_by_type_neo4j,
+    get_node_relationships_neo4j,
+    get_graph_visualization_data_neo4j,
+    explore_graph_neo4j
+)
 import yaml
 import os
 import json
@@ -17,6 +27,9 @@ from app.utils.logger import logger
 
 # Initialize ContextManager
 context_manager = ContextManager(driver)
+
+# Initialize embeddings service
+embeddings_service = EmbeddingsService()
 
 # Create router instance
 router = APIRouter()
@@ -350,3 +363,118 @@ async def shutdown_event():
     except Exception as e:
         logger.error(f"Error during Smile agent cleanup: {str(e)}", exc_info=True)
         raise
+
+# Graph-related endpoints
+@router.get("/api/v1/graph", response_model=Dict[str, Any])
+async def get_graph_data(
+    node_types: Optional[List[str]] = Query(None),
+    depth: int = Query(1, ge=1, le=3),
+    limit: int = Query(50, ge=1, le=200)
+):
+    """
+    Fetch graph data including nodes and relationships for visualization.
+    """
+    try:
+        with driver.session() as session:
+            result = session.execute_read(
+                get_graph_visualization_data_neo4j,
+                node_types=node_types,
+                limit=limit
+            )
+            return result
+    except Exception as e:
+        logger.error(f"Error fetching graph data: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/v1/graph/explore", response_model=Dict[str, Any])
+async def explore_graph(
+    search: Optional[str] = Query(None, description="Search term to filter nodes"),
+    node_type: Optional[str] = Query(None, description="Filter by node type"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of nodes to return"),
+    depth: int = Query(1, ge=1, le=3, description="Depth of relationships to explore")
+):
+    """
+    Explore the graph with optional search and filtering.
+    Returns nodes and relationships for visualization.
+    """
+    try:
+        with driver.session() as session:
+            result = session.execute_read(
+                explore_graph_neo4j,
+                search=search,
+                node_type=str(node_type) if node_type else None,
+                limit=int(limit)
+            )
+            return result
+    except Exception as e:
+        logger.error(f"Error exploring graph: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/v1/graph/nodes/{node_type}")
+async def get_nodes(
+    node_type: str,
+    skip: Optional[int] = Query(default=0),
+    limit: Optional[int] = Query(default=10),
+    filter_by: Optional[str] = Query(default=None)
+) -> List[Dict]:
+    """Fetch nodes of a specific type with optional filtering and pagination."""
+    try:
+        with driver.session() as session:
+            result = session.execute_read(
+                get_nodes_by_type_neo4j,
+                node_type=node_type,
+                skip=getattr(skip, "default", skip),
+                limit=getattr(limit, "default", limit),
+                filter_by=getattr(filter_by, "default", filter_by)
+            )
+            return result
+    except Exception as e:
+        logger.error(f"Error fetching nodes: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching nodes: {str(e)}")
+
+@router.get("/api/v1/graph/relationships/{node_id}")
+async def fetch_relationships(
+    node_id: str,
+    limit: Optional[int] = Query(default=10)
+) -> List[Dict]:
+    """Fetch all relationships for a specific entity."""
+    try:
+        with driver.session() as session:
+            result = session.execute_read(
+                get_node_relationships_neo4j,
+                node_id=node_id,
+                limit=getattr(limit, "default", limit)
+            )
+            return result
+    except Exception as e:
+        logger.error(f"Error fetching relationships: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching relationships: {str(e)}")
+
+@router.post("/api/v1/graph/search", response_model=List[Dict[str, Any]])
+async def semantic_search(
+    query: str,
+    node_type: str,
+    limit: int = Query(5, ge=1, le=20),
+    min_score: float = Query(0.7, ge=0, le=1),
+    additional_filters: Optional[str] = None
+):
+    """
+    Perform semantic search across nodes of a specific type.
+    """
+    try:
+        # Generate embedding for the search query
+        query_embedding = embeddings_service.generate_embedding(query)
+        
+        with driver.session() as session:
+            results = session.execute_read(
+                similarity_search,
+                query_embedding,
+                node_type,
+                limit,
+                min_score,
+                additional_filters or ""
+            )
+            return results
+    except Exception as e:
+        logger.error(f"Error performing semantic search: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

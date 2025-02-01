@@ -4,9 +4,8 @@ Entities operations for Neo4j.
 This module handles the creation and management of entity nodes
 in the Neo4j database.
 """
-
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from uuid import UUID
 from neo4j import ManagedTransaction
 from app.services.embeddings import EmbeddingsService
@@ -144,4 +143,56 @@ def get_or_create_person_entity(tx: ManagedTransaction, person_details: Dict[str
     db_id = create_entity_node(tx, person)
     person.db_id = db_id
     
-    return person 
+    return person
+
+def get_nodes(tx: ManagedTransaction,
+            label: Optional[str] = None,
+            search_term: Optional[str] = None,
+            limit: int = 50,
+            offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Retrieve nodes from Neo4j with optional filtering and pagination.
+
+    Args:
+        tx (ManagedTransaction): Neo4j transaction object
+        label (Optional[str]): Node label to filter by (e.g., 'Person', 'Document')
+        search_term (Optional[str]): Term to search in node properties
+        limit (int): Maximum number of nodes to return (default: 50)
+        offset (int): Number of nodes to skip (default: 0)
+
+    Returns:
+        List[Dict[str, Any]]: List of matching nodes with their properties
+    """
+    # Start building the query
+    query = "MATCH (n"
+    
+    # Add label filter if provided
+    if label:
+        query += f":{label}"
+    query += ")"
+
+    # Add search term filter if provided
+    if search_term:
+        query += """
+        WHERE n.name =~ $search_regex
+        OR n.notes =~ $search_regex
+        OR n.content =~ $search_regex
+        """
+
+    # Add return statement with pagination
+    query += """
+    RETURN n {.*, embedding: null} as node
+    SKIP $offset
+    LIMIT $limit
+    """
+
+    # Prepare parameters
+    params = {
+        "offset": offset,
+        "limit": limit,
+        "search_regex": f"(?i).*{search_term}.*" if search_term else None
+    }
+
+    # Execute query and return results
+    result = tx.run(query, params)
+    return [record["node"] for record in result]

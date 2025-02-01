@@ -122,3 +122,59 @@ def delete_relationship(tx: ManagedTransaction, relationship_id: str) -> bool:
     except Exception as e:
         logger.error(f"Error deleting relationship: {str(e)}")
         raise 
+
+def get_relationships_between_nodes(tx: ManagedTransaction,
+                                node_ids: List[str],
+                                relationship_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Get relationships between specified nodes with optional relationship type filtering.
+    
+    Args:
+        tx (ManagedTransaction): Neo4j transaction
+        node_ids (List[str]): List of node IDs to find relationships between
+        relationship_type (Optional[str]): Filter relationships by type
+        
+    Returns:
+        List[Dict[str, Any]]: List of relationships with connected nodes details
+    """
+    # Base query with node filtering
+    query = """
+    MATCH (n)-[r:RELATES]-(m)
+    WHERE n.id IN $node_ids AND m.id IN $node_ids
+    """
+    
+    # Add relationship type filter if specified
+    if relationship_type:
+        query += "AND r.type = $relationship_type\n"
+    
+    # Complete the query with return statement
+    query += """
+    RETURN r {
+        .*,
+        from_node: {
+            id: startNode(r).id,
+            name: startNode(r).name,
+            type: startNode(r).type
+        },
+        to_node: {
+            id: endNode(r).id,
+            name: endNode(r).name,
+            type: endNode(r).type
+        }
+    } as relationship
+    """
+    
+    try:
+        params = {"node_ids": node_ids}
+        if relationship_type:
+            params["relationship_type"] = relationship_type
+            
+        result = tx.run(query, **params)
+        relationships = [record["relationship"] for record in result]
+        
+        logger.info(f"Retrieved {len(relationships)} relationships between specified nodes")
+        return relationships
+        
+    except Exception as e:
+        logger.error(f"Error getting relationships between nodes: {str(e)}")
+        raise

@@ -58,7 +58,7 @@ entity_extractor_agent:
   description: "Entity Extractor Agent"
   provider: "openai" # OpenAI, anthropic
   params:
-    model: "gpt-4" # OpenAI model, anthropic model
+    model: "gpt-40" # OpenAI model, anthropic model
     temperature: 0.0 # Temperature
     streaming: false
   prompt_template: |
@@ -80,7 +80,7 @@ conversation_summarizer_agent:
   description: "Conversation Summarizer Agent"
   provider: "openai" # OpenAI, anthropic
   params:
-    model: "gpt-4" # OpenAI model, anthropic model
+    model: "gpt-4o" # OpenAI model, anthropic model
     temperature: 0.0 # Temperature
     streaming: false
   prompt_template: |
@@ -104,7 +104,7 @@ preference_extractor_agent:
   description: "Preference Extractor Agent"
   provider: "openai" # OpenAI, anthropic
   params:
-    model: "gpt-4" # OpenAI model, anthropic model
+    model: "gpt-4o" # OpenAI model, anthropic model
     temperature: 0.0 # Temperature
     streaming: false
   prompt_template: |
@@ -129,7 +129,7 @@ cognitive_memory_extractor_agent:
   description: "Cognitive Memory Extractor Agent"
   provider: "openai"
   params:
-    model: "gpt-4"
+    model: "gpt-4o"
     temperature: 0.0
     streaming: false
   prompt_template: |

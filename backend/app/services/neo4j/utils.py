@@ -9,6 +9,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any
 from uuid import UUID
+from neo4j.time import DateTime as Neo4jDateTime
 
 class DateTimeEncoder(json.JSONEncoder):
     """JSON encoder for datetime objects."""
@@ -22,6 +23,18 @@ class Neo4jEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, (datetime, UUID)):
             return str(obj)
+        if isinstance(obj, Neo4jDateTime):
+            # Convert Neo4j DateTime to ISO format string
+            dt = datetime(
+                obj.year,
+                obj.month,
+                obj.day,
+                obj.hour,
+                obj.minute,
+                obj.second,
+                obj.nanosecond // 1000  # Convert nanoseconds to microseconds
+            )
+            return dt.isoformat()
         return super().default(obj)
 
 def convert_datetime_fields(properties: Dict[str, Any]) -> Dict[str, Any]:
@@ -34,7 +47,7 @@ def convert_datetime_fields(properties: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Dictionary with datetime fields converted to ISO strings
     """
-    datetime_fields = ['created_at', 'start_time', 'end_time', 'since', 'until']
+    datetime_fields = ['created_at', 'updated_at', 'start_time', 'end_time', 'since', 'until']
     converted = properties.copy()
     
     for field in datetime_fields:
@@ -42,6 +55,17 @@ def convert_datetime_fields(properties: Dict[str, Any]) -> Dict[str, Any]:
             value = converted[field]
             if isinstance(value, datetime):
                 converted[field] = value.isoformat()
+            elif isinstance(value, Neo4jDateTime):
+                dt = datetime(
+                    value.year,
+                    value.month,
+                    value.day,
+                    value.hour,
+                    value.minute,
+                    value.second,
+                    value.nanosecond // 1000  # Convert nanoseconds to microseconds
+                )
+                converted[field] = dt.isoformat()
             elif isinstance(value, str):
                 try:
                     # Verify it's a valid ISO format

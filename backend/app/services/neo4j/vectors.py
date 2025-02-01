@@ -21,47 +21,79 @@ def create_vector_indexes(tx: ManagedTransaction) -> None:
     Args:
         tx (ManagedTransaction): Neo4j transaction
     """
-    indexes = [
-        ("Preference", "preference_vector", "embedding", 1536),  # OpenAI embedding dimension
-        ("Summary", "summary_vector", "embedding", 1536),
-        ("Person", "person_vector", "embedding", 1536),
-        ("Organization", "org_vector", "embedding", 1536),
-        ("Document", "document_vector", "embedding", 1536),
-        ("CognitiveMemory", "memory_vector", "embedding", 1536)
-    ]
-    
-    for label, index_name, property_name, dimensions in indexes:
+    # Define the vector index configurations
+    vector_indexes = {
+        "preference": {
+            "label": "Preference",
+            "property": "embedding",
+            "dimensions": 1536
+        },
+        "summary": {
+            "label": "Summary",
+            "property": "embedding",
+            "dimensions": 1536
+        },
+        "person": {
+            "label": "Person",
+            "property": "embedding",
+            "dimensions": 1536
+        },
+        "organization": {
+            "label": "Organization",
+            "property": "embedding",
+            "dimensions": 1536
+        },
+        "document": {
+            "label": "Document",
+            "property": "embedding",
+            "dimensions": 1536
+        },
+        "memory": {
+            "label": "CognitiveMemory",
+            "property": "embedding",
+            "dimensions": 1536
+        }
+    }
+
+    for index_name, config in vector_indexes.items():
+        index_name = f"{index_name}_vector"
+        label = config["label"]
+        property_name = config["property"]
+        dimensions = config["dimensions"]
+
         try:
-            # Create vector index
-            query = f"""
-            CALL db.index.vector.createNodeIndex(
-                $index_name,
-                $label,
-                $property_name,
-                $dimensions,
-                'cosine'
-            )
+            # First check if index exists
+            check_query = """
+            SHOW VECTOR INDEXES
+            YIELD name, type, labelsOrTypes, properties
+            WHERE name = $index_name
             """
-            tx.run(
-                query,
-                index_name=index_name,
-                label=label,
-                property_name=property_name,
-                dimensions=dimensions
-            )
-            logger.info(f"Created vector index {index_name} for {label} nodes")
-        except Exception as e:
-            # Check for specific error messages indicating index already exists
-            if any(msg in str(e) for msg in [
-                "already exists an index",
-                "AlreadyIndexedException",
-                "An equivalent index already exists"
-            ]):
-                logger.info(f"Vector index {index_name} already exists for {label} nodes")
+            result = tx.run(check_query, index_name=index_name)
+            exists = result.single() is not None
+
+            if not exists:
+                # Create vector index if it doesn't exist
+                create_query = """
+                CALL db.index.vector.createNodeIndex(
+                    $index_name,
+                    $label,
+                    $property_name,
+                    $dimensions,
+                    'cosine'
+                )
+                """
+                tx.run(
+                    create_query,
+                    index_name=index_name,
+                    label=label,
+                    property_name=property_name,
+                    dimensions=dimensions
+                )
+                logger.info(f"Created vector index {index_name} for {label} nodes")
             else:
-                logger.error(f"Error creating vector index {index_name}: {str(e)}")
-                # Don't raise the error, just log it and continue
-                # This allows other indexes to be created even if one fails
+                logger.info(f"Vector index {index_name} already exists for {label} nodes")
+        except Exception as e:
+            logger.error(f"Error creating vector index {index_name}: {str(e)}")
 
 def similarity_search(
     tx: ManagedTransaction,
@@ -95,48 +127,96 @@ def similarity_search(
         result = tx.run(query, limit=limit)
         return [record["node"] for record in result]
 
-    # Normal vector search for other node types
-    index_name = {
-        "Preference": "preference_vector",
-        "Summary": "summary_vector",
-        "Person": "person_vector",
-        "Organization": "org_vector",
-        "Document": "document_vector",
-        "CognitiveMemory": "memory_vector"
-    }[node_label]
-    
-    # Build the query with optional filters
-    query = """
-    CALL db.index.vector.queryNodes(
-        $index_name,
-        $k,
-        $query_vector
-    ) YIELD node, score
-    WHERE score >= $min_score """ + additional_filters + """
-    WITH node, score
-    RETURN node {.*, embedding: null} as node, score
-    ORDER BY score DESC
-    """
-    
-    try:
-        result = tx.run(
-            query,
-            index_name=index_name,
-            k=limit,
-            query_vector=query_embedding,
-            min_score=min_score
-        )
-        
-        return [
-            {
-                **dict(record["node"]),
-                "similarity_score": record["score"]
-            }
-            for record in result
-        ]
-    except Exception as e:
-        logger.error(f"Error performing similarity search: {str(e)}")
-        raise
+    # Normalize node_label to handle case differences and extra spaces
+    normalized_label = node_label.strip().lower()
+
+    # If the normalized label is 'all', do a union search across all node types
+    if normalized_label == "all":
+        logger.info("Performing union semantic search across all node types")
+        # Define mapping with lowercase keys
+        index_mapping = {
+            "preference": {"index": "preference_vector", "label": "Preference"},
+            "summary": {"index": "summary_vector", "label": "Summary"},
+            "person": {"index": "person_vector", "label": "Person"},
+            "organization": {"index": "organization_vector", "label": "Organization"},
+            "document": {"index": "document_vector", "label": "Document"},
+            "memory": {"index": "memory_vector", "label": "CognitiveMemory"}
+        }
+        results = []
+        for type_key, config in index_mapping.items():
+            index_name = config["index"]
+            label = config["label"]
+
+            # First verify if the index exists
+            check_query = """
+            SHOW VECTOR INDEXES
+            YIELD name, type, labelsOrTypes, properties
+            WHERE name = $index_name
+            """
+            check_result = tx.run(check_query, index_name=index_name)
+            if check_result.single() is None:
+                logger.warning(f"Vector index {index_name} does not exist for {label} nodes, skipping...")
+                continue
+
+            union_query = f"""
+            CALL db.index.vector.queryNodes($index_name, toInteger($limit), $query_vector)
+            YIELD node, score
+            WHERE score >= $min_score {additional_filters}
+            RETURN node {{.*, score: score, embedding: null}} as node
+            """
+            logger.info(f"Querying index '{index_name}' for node type '{label}'")
+            try:
+                result = tx.run(union_query,
+                                index_name=index_name,
+                                query_vector=query_embedding,
+                                limit=limit,
+                                min_score=min_score)
+                nodes = [record["node"] for record in result]
+                logger.info(f"Retrieved {len(nodes)} nodes for type '{label}'")
+                results.extend(nodes)
+            except Exception as e:
+                logger.error(f"Error querying index '{index_name}' for node type '{label}': {e}", exc_info=True)
+        return results
+    else:
+        # Mapping for specific node types; keys are normalized to lowercase
+        index_mapping = {
+            "preference": {"index": "preference_vector", "label": "Preference"},
+            "summary": {"index": "summary_vector", "label": "Summary"},
+            "person": {"index": "person_vector", "label": "Person"},
+            "organization": {"index": "organization_vector", "label": "Organization"},
+            "document": {"index": "document_vector", "label": "Document"},
+            "memory": {"index": "memory_vector", "label": "CognitiveMemory"}
+        }
+        config = index_mapping.get(normalized_label)
+        if not config:
+            raise KeyError(f"Invalid node label: {node_label}")
+
+        index_name = config["index"]
+        label = config["label"]
+
+        # First verify if the index exists
+        check_query = """
+        SHOW VECTOR INDEXES
+        YIELD name, type, labelsOrTypes, properties
+        WHERE name = $index_name
+        """
+        check_result = tx.run(check_query, index_name=index_name)
+        if check_result.single() is None:
+            raise ValueError(f"Vector index {index_name} does not exist for {label} nodes")
+
+        query = f"""
+            CALL db.index.vector.queryNodes($index_name, toInteger($limit), $query_vector)
+            YIELD node, score
+            WHERE score >= $min_score {additional_filters}
+            RETURN node {{.*, score: score, embedding: null}} as node
+            """
+        logger.info(f"Querying index '{index_name}' for node type '{label}'")
+        result = tx.run(query,
+                        index_name=index_name,
+                        query_vector=query_embedding,
+                        limit=limit,
+                        min_score=min_score)
+        return [record["node"] for record in result]
 
 def create_document_node(
     tx: ManagedTransaction,

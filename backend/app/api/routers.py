@@ -453,28 +453,66 @@ async def fetch_relationships(
 @router.post("/api/v1/graph/search", response_model=List[Dict[str, Any]])
 async def semantic_search(
     query: str,
-    node_type: str,
-    limit: int = Query(5, ge=1, le=20),
-    min_score: float = Query(0.7, ge=0, le=1),
+    node_type: Optional[str] = None,  # Made optional to search across all nodes if not provided
+    limit: int = Query(5, ge=1, le=20, description="Maximum number of nodes to return"),
+    min_score: float = Query(0.7, ge=0, le=1, description="Minimum similarity score to consider"),
     additional_filters: Optional[str] = None
 ):
     """
-    Perform semantic search across nodes of a specific type.
+    Perform semantic search across nodes with an optional node type filter.
+    
+    This endpoint generates an embedding for the input query and searches for nodes 
+    in the graph database. If 'node_type' is provided, the search is restricted to that 
+    type; otherwise, it searches across all nodes.
+    
+    Args:
+        query (str): The search query string.
+        node_type (Optional[str]): The type of node to filter by. Defaults to None.
+        limit (int): Maximum number of nodes to return. Defaults to 5.
+        min_score (float): Minimum similarity score to be considered. Defaults to 0.7.
+        additional_filters (Optional[str]): Additional filtering criteria as a string.
+        
+    Returns:
+        List[Dict[str, Any]]: List of dictionaries representing the search results.
+        
+    Raises:
+        HTTPException: If any error occurs during the semantic search.
     """
     try:
-        # Generate embedding for the search query
+        # Log the start of the semantic search operation
+        logger.info(f"Performing semantic search with query: '{query}', node_type: '{node_type}'")
+        
+        # Generate the embedding for the search query using the embeddings service instance
         query_embedding = embeddings_service.generate_embedding(query)
         
+        # Determine which node type filter to apply; if no node type is provided, use 'all' to ensure default index lookup
+        search_node_type = node_type if node_type else "all"
+        
+        # Open a session with the neo4j driver and perform a read transaction with our similarity function
         with driver.session() as session:
             results = session.execute_read(
                 similarity_search,
                 query_embedding,
-                node_type,
+                search_node_type,
                 limit,
                 min_score,
                 additional_filters or ""
             )
-            return results
+        
+        # Import the neo4j DateTime type for proper serialization
+        from neo4j.time import DateTime as Neo4jDateTime
+        
+        # Use jsonable_encoder with a custom encoder for Neo4jDateTime to convert it to an ISO string.
+        # This ensures that the response is JSON serializable.
+        serialized_results = jsonable_encoder(
+            results, custom_encoder={Neo4jDateTime: lambda v: v.iso_format()}
+        )
+        
+        # Log successful semantic search operation
+        logger.info(f"Semantic search completed successfully with {len(results)} result(s).")
+        return JSONResponse(content=serialized_results)
+    
     except Exception as e:
-        logger.error(f"Error performing semantic search: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Log and capture any exceptions
+        logger.error(f"Error performing semantic search: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error performing semantic search: {str(e)}")
